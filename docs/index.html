@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>元素替换声子稳定性筛选工具集</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --card: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --dim: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --orange: #d29922;
+  --code-bg: #1c2128;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+}
+.container { max-width: 920px; margin: 0 auto; padding: 40px 24px; }
+
+/* header */
+header {
+  text-align: center;
+  padding: 48px 0 32px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 48px;
+}
+header h1 { font-size: 2.2em; font-weight: 700; margin-bottom: 8px; }
+header h1 span { color: var(--accent); }
+header p { color: var(--dim); font-size: 1.1em; }
+header .tag {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: 0.85em;
+  background: #1f2a3f;
+  color: var(--accent);
+  border: 1px solid #2d3f5f;
+}
+
+/* sections */
+section { margin-bottom: 40px; }
+section h2 {
+  font-size: 1.5em;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+section h3 {
+  font-size: 1.15em;
+  margin: 24px 0 12px;
+  color: var(--accent);
+}
+section h4 {
+  font-size: 1em;
+  margin: 16px 0 8px;
+  color: var(--text);
+}
+
+/* cards */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+.card-title {
+  font-weight: 600;
+  font-size: 1.05em;
+  margin-bottom: 8px;
+}
+.card-title .badge {
+  display: inline-block;
+  font-size: 0.7em;
+  padding: 2px 10px;
+  border-radius: 12px;
+  margin-left: 8px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+.badge-a { background: #1a3a2a; color: var(--green); border: 1px solid #2a5a3a; }
+.badge-b { background: #2a2a1a; color: var(--orange); border: 1px solid #4a4a2a; }
+.badge-c { background: #1a2a3a; color: var(--accent); border: 1px solid #2a4a6a; }
+
+/* code */
+pre, code {
+  font-family: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  font-size: 0.88em;
+  overflow-x: auto;
+  margin: 12px 0;
+  line-height: 1.5;
+}
+pre .c { color: #8b949e; font-style: italic; } /* comment */
+pre .k { color: #ff7b72; }  /* keyword */
+pre .s { color: #a5d6ff; }  /* string */
+pre .n { color: #79c0ff; }  /* name/var */
+pre .o { color: #ff7b72; }  /* operator */
+code.inline {
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+/* tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 0.9em;
+}
+th, td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+th { color: var(--dim); font-weight: 600; }
+
+/* lists */
+ul, ol { padding-left: 20px; margin: 8px 0 16px; }
+li { margin-bottom: 4px; }
+
+/* workflow arrows */
+.flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 20px 0;
+}
+.flow-step {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 28px;
+  text-align: center;
+  min-width: 200px;
+  font-weight: 500;
+}
+.flow-arrow {
+  color: var(--dim);
+  font-size: 1.5em;
+  line-height: 1;
+  padding: 4px 0;
+}
+.flow-branch {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+.flow-branch .flow-step {
+  min-width: 140px;
+  font-size: 0.9em;
+}
+.flow-branch .green { border-color: var(--green); }
+.flow-branch .red { border-color: var(--red); }
+
+/* status */
+.status-good { color: var(--green); }
+.status-bad { color: var(--red); }
+.status-warn { color: var(--orange); }
+
+/* note box */
+.note {
+  background: #1f2a3f;
+  border-left: 4px solid var(--accent);
+  border-radius: 4px;
+  padding: 14px 18px;
+  margin: 16px 0;
+  font-size: 0.93em;
+}
+.note.warn { border-left-color: var(--orange); }
+.note.err { border-left-color: var(--red); }
+
+/* responsive */
+@media (max-width: 640px) {
+  .container { padding: 20px 12px; }
+  header h1 { font-size: 1.5em; }
+  pre { font-size: 0.8em; }
+  .flow-branch { flex-direction: column; }
+}
+
+/* files table */
+.file-table td:first-child {
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* footer */
+footer {
+  text-align: center;
+  color: var(--dim);
+  font-size: 0.85em;
+  padding: 32px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 48px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+<h1>元素替换 <span>声子稳定性</span> 筛选工具集</h1>
+<p>从启发式筛选到 VASP+phonopy 自动化流水线</p>
+<span class="tag">2D Materials &middot; Phonon &middot; High-throughput</span>
+</header>
+
+<!-- ============================================================ -->
+<section>
+<h2>问题背景</h2>
+<p>
+在 VASP 计算中，通过元素替换调控材料性质是常见策略。但有些替换方案
+<strong>无论怎么优化结构，声子谱总是出现虚频（imaginary modes）</strong>，
+意味着该结构在动力学上不稳定。
+</p>
+<p>
+本工具集提供三层次解决方案：
+</p>
+<ul>
+  <li><strong>方案 A</strong> — 零计算成本的启发式预筛选（本机运行）</li>
+  <li><strong>方案 B</strong> — 机器学习势快速声子筛选（需 GPU，预留框架）</li>
+  <li><strong>方案 C</strong> — 服务器端 VASP + phonopy 全自动流水线</li>
+</ul>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<h2>工具文件</h2>
+<table class="file-table">
+<tr><th>文件</th><th>说明</th></tr>
+<tr><td>screen.py</td><td>启发式筛选器 — 基于离子半径、电负性、氧化态评分</td></tr>
+<tr><td>server_pipeline.py</td><td>VASP + phonopy 自动化流水线</td></tr>
+<tr><td>README.md</td><td>Markdown 文档</td></tr>
+<tr><td>docs/index.html</td><td>本页面</td></tr>
+</table>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<h2>方案 A：启发式筛选</h2>
+<div class="card">
+<div class="card-title">零成本预筛选 <span class="badge badge-a">本机运行</span></div>
+<p>仅需 POSCAR 文件，几秒钟输出替换元素评分排名。基于三个物理维度：</p>
+<ul>
+  <li><strong>离子半径兼容性</strong> — Shannon 半径匹配度（权重 0.4）</li>
+  <li><strong>电负性相似度</strong> — Pauling 标度差异（权重 0.3）</li>
+  <li><strong>氧化态兼容性</strong> — 候选元素是否存在目标氧化态（权重 0.2）</li>
+  <li><strong>周期表邻近度</strong> — 同族 &gt; 同行 &gt; 邻近（权重 0.1）</li>
+</ul>
+</div>
+
+<h3>基本用法</h3>
+<pre><span class="c"># 替换 V 位，指定候选</span>
+python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr --ox-state 4
+
+<span class="c"># 替换特定位点（1-indexed）</span>
+python screen.py POSCAR --site 2 --candidates all
+
+<span class="c"># 输出候选 POSCAR + JSON</span>
+python screen.py POSCAR --element Cl --candidates F,Br,I \
+    --ox-state -1 --output-dir ./candidates --json results.json</pre>
+
+<h3>内置元素分组</h3>
+<table>
+<tr><th>名称</th><th>元素</th></tr>
+<tr><td>all</td><td>全部常见元素 (75+)</td></tr>
+<tr><td>tm</td><td>过渡金属</td></tr>
+<tr><td>main</td><td>主族元素</td></tr>
+<tr><td>chalcogen</td><td>氧族: O, S, Se, Te</td></tr>
+<tr><td>pnictogen</td><td>氮族: N, P, As, Sb, Bi</td></tr>
+<tr><td>halogen</td><td>卤素: F, Cl, Br, I</td></tr>
+<tr><td>early-tm</td><td>前过渡金属</td></tr>
+<tr><td>late-tm</td><td>后过渡金属</td></tr>
+</table>
+
+<h3>输出示例</h3>
+<pre><span class="c">=================================================================</span>
+<span class="c">  2D Substitution Screener - V in V4S9Cl4</span>
+<span class="c">=================================================================</span>
+  Host       : V  (ox 4, coord 6)
+  Candidates : 5 elements
+
+Rank  Element  Total    Radius   EN       OS       Struct   note
+<span class="c">--------------------------------------------------------------------------------</span>
+1     Nb       0.846   0.757   0.975   0.800   0.900   EN OK
+2     Ta       0.822   0.757   0.897   0.800   0.900   EN OK
+3     Mo       0.782   0.823   0.643   1.000   0.600   Radius OK | OS OK
+4     Cr       0.740   0.543   0.975   0.800   0.700   EN OK
+5     W        0.724   0.801   0.544   1.000   0.407   Radius OK | OS OK</pre>
+
+<div class="note warn">
+<strong>重要限制：</strong> 启发式评分是 <em>几何/化学兼容性</em> 指标，<strong>不能预测声子稳定性</strong>。
+高分方案（如 S→Se 0.922）仍可能因电子结构原因出现虚频。
+正确用法：初筛排除明显不合适的选项，再对 Top N 候选进行 DFT 验证。
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<h2>方案 B：ML 势筛选</h2>
+<div class="card">
+<div class="card-title">机器学习势快速声子计算 <span class="badge badge-b">预留框架</span></div>
+<p>使用通用 ML 势（MACE-MP-0 / CHGNet / M3GNet）替代 DFT 进行结构弛豫和声子计算，
+速度提升 2-3 个数量级。适合大规模候选筛选。</p>
+</div>
+
+<h3>所需环境</h3>
+<ul>
+  <li>MACE 或 CHGNet（<strong>推荐 GPU</strong>，CPU 也可但较慢）</li>
+  <li>phonopy + ase</li>
+  <li>典型耗时：数十秒/体系 vs. DFT 数小时</li>
+</ul>
+
+<div class="note warn">
+<strong>注意：</strong> 方案 B 为预留框架。如果将来配置了 ML 势环境，
+可在 server_pipeline.py 中集成 phonopy + ML 势的声子计算模块。
+当前建议使用方案 A + C 的完整 DFT 工作流。
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<h2>方案 C：服务器流水线</h2>
+<div class="card">
+<div class="card-title">VASP + phonopy 自动提交与分析 <span class="badge badge-c">服务器端</span></div>
+<p>从候选 POSCAR 自动生成完整的 VASP 弛豫 → phonopy 声子计算 PBS 作业，
+并提供结果分析（含 Gamma 点虚频伪影识别）。</p>
+</div>
+
+<h3>完整工作流</h3>
+
+<div class="flow">
+<div class="flow-step">1. 本机启发式筛选</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">2. 生成候选 POSCAR + 服务器作业</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">3. 上传到服务器，提交 qsub</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">4. phonon-setup 生成声子作业</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-step">5. qsub 声子计算 → check band.yaml</div>
+<div class="flow-arrow">↓</div>
+<div class="flow-branch">
+<div class="flow-step green">无虚频 → 稳定方案 ✓</div>
+<div class="flow-step red">有虚频 → 返回步骤 1 重新筛选</div>
+</div>
+</div>
+
+<h3>命令速查</h3>
+<pre><span class="c"># 1. 生成候选 POSCAR</span>
+python screen.py POSCAR --element V --candidates Nb,Ta \
+    --ox-state 4 --output-dir ./candidates
+
+<span class="c"># 2. 生成 VASP 弛豫作业（-r 指向含 POTCAR 的参考目录）</span>
+python server_pipeline.py setup ./candidates -r ./ref_opt -o ./vasp_jobs
+
+<span class="c"># 3. 在服务器上提交弛豫</span>
+cd vasp_jobs/*/relax && qsub run_relax.pbs
+
+<span class="c"># 4. 弛豫完成后，生成声子作业</span>
+python server_pipeline.py phonon-setup ./vasp_jobs --species "S V Nb"
+
+<span class="c"># 5. 提交声子计算并分析结果</span>
+cd vasp_jobs/*/phonon && qsub run_phonon.pbs
+python server_pipeline.py analyze ./vasp_jobs --json phonon_results.json</pre>
+
+<h3>批量生成替换结构</h3>
+<pre><span class="c"># 从单个 POSCAR 批量生成所有替换组合</span>
+python server_pipeline.py bulk POSCAR \
+    -p "V@Nb,Ta" "Cl@F,Br,I" \
+    -o ./all_candidates</pre>
+
+<h3>分析输出示例</h3>
+<pre><span class="c">================================================================================</span>
+<span class="c">  Phonon Stability Analysis</span>
+<span class="c">================================================================================</span>
+  Scanned: 3
+  STABLE : 1  |  ARTIFACT (ignored): 1
+  UNSTABLE: 1  |  N/A: 0
+
+System                       Min(THz)   Non-G    #Imag    Type         Status
+<span class="c">---------------------------------------------------------------------------------</span>
+phonopy                      -204.72    -204.72  7202     Real-imag    UNSTABLE
+pho551                        -6.70      -6.70   684      Real-imag    UNSTABLE
+VSF-phonon1                   -6.39      --       8       Gamma-art    STABLE</pre>
+
+<h3>Gamma 点伪影识别</h3>
+<p>分析工具会自动区分两种情况：</p>
+<ul>
+  <li><span class="status-good">Gamma 点小虚频 (&lt;1 THz)</span> → 声学求和规则伪影，<strong>可安全忽略</strong></li>
+  <li><span class="status-bad">非 Gamma 点虚频 / 大虚频 (&gt;1 THz)</span> → <strong>真实声子不稳定性</strong></li>
+</ul>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<h2>声子不稳定的常见原因</h2>
+<table>
+<tr><th>原因</th><th>表现</th><th>对策</th></tr>
+<tr>
+<td>尺寸失配</td>
+<td>高频虚频、结构扭曲</td>
+<td>用启发式筛选避免半径差异 &gt;20%</td>
+</tr>
+<tr>
+<td>电荷失配</td>
+<td>虚频 + 电子不收敛</td>
+<td>匹配氧化态；考虑额外掺杂补偿</td>
+</tr>
+<tr>
+<td>费米面嵌套</td>
+<td>特定 q 点虚频 (π,π)</td>
+<td>考虑磁性、自旋极化、U 值</td>
+</tr>
+<tr>
+<td>Jahn-Teller</td>
+<td>局域结构畸变</td>
+<td>检查对称性破缺可能性</td>
+</tr>
+<tr>
+<td>声学求和规则</td>
+<td>仅 Gamma 点小虚频</td>
+<td>可忽略（自动识别）</td>
+</tr>
+</table>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<h2>快速开始</h2>
+
+<h3>安装</h3>
+<pre>pip install pymatgen</pre>
+
+<h3>测试</h3>
+<pre><span class="c"># 试算 VSCl 中 V 位替换</span>
+python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr --ox-state 4
+
+<span class="c"># 试算 VSCl 中 Cl 位替换</span>
+python screen.py POSCAR --element Cl --candidates F,Br,I --ox-state -1
+
+<span class="c"># 试算 S 位全部候选</span>
+python screen.py POSCAR --element S --candidates chalcogen --ox-state -2</pre>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<h2>依赖与环境</h2>
+<table>
+<tr><th>组件</th><th>需求</th></tr>
+<tr><td>Python</td><td>3.8+</td></tr>
+<tr><td>pymatgen</td><td>2024+（pip install pymatgen）</td></tr>
+<tr><td>PyYAML</td><td>用于 band.yaml 解析（pip install pyyaml）</td></tr>
+<tr><td>服务器</td><td>VASP + phonopy + PBS 调度系统</td></tr>
+<tr><td>ML 势（方案 B）</td><td>MACE / CHGNet + GPU（可选）</td></tr>
+</table>
+</section>
+
+<footer>
+Element Substitution Screener &mdash; Built for VASP phonon calculations
+</footer>
+
+</div>
+</body>
+</html>
