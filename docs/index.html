@@ -257,27 +257,76 @@ footer {
 <h2>方案 A：启发式筛选</h2>
 <div class="card">
 <div class="card-title">零成本预筛选 <span class="badge badge-a">本机运行</span></div>
-<p>仅需 POSCAR 文件，几秒钟输出替换元素评分排名。基于三个物理维度：</p>
-<ul>
-  <li><strong>离子半径兼容性</strong> — Shannon 半径匹配度（权重 0.4）</li>
-  <li><strong>电负性相似度</strong> — Pauling 标度差异（权重 0.3）</li>
-  <li><strong>氧化态兼容性</strong> — 候选元素是否存在目标氧化态（权重 0.2）</li>
-  <li><strong>周期表邻近度</strong> — 同族 &gt; 同行 &gt; 邻近（权重 0.1）</li>
-</ul>
+<p>仅需 POSCAR 文件，几秒钟输出替换元素评分排名。</p>
+
+<h4>五项评分维度</h4>
+<table>
+<tr><th>维度</th><th>权重</th><th>说明</th></tr>
+<tr>
+  <td><strong>电子构型</strong></td>
+  <td>0.45</td>
+  <td><strong>最重要。</strong>同族（相同价电子数/ d 电子数）最高分。
+      同区块（d↔d / p↔p）次之。电子排布决定了成键特性。</td>
+</tr>
+<tr>
+  <td>离子半径</td>
+  <td>0.20</td>
+  <td>Shannon 半径匹配度。太大/太小都会导致晶格畸变。</td>
+</tr>
+<tr>
+  <td>电负性</td>
+  <td>0.15</td>
+  <td>Pauling 标度差异。差异小 → 键性相似。</td>
+</tr>
+<tr>
+  <td>氧化态</td>
+  <td>0.10</td>
+  <td>候选元素是否存在目标氧化态。</td>
+</tr>
+<tr>
+  <td>周期邻近</td>
+  <td>0.10</td>
+  <td>同族 > 同行 > 邻族。</td>
+</tr>
+</table>
 </div>
 
-<h3>基本用法</h3>
-<pre><span class="c"># 替换 V 位，指定候选</span>
-python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr --ox-state 4
+<h3>快速使用</h3>
+<pre><span class="c"># 一键推荐 V 的替代元素（自动生成候选 + 评分）</span>
+python screen.py POSCAR --element V
 
-<span class="c"># 替换特定位点（1-indexed）</span>
-python screen.py POSCAR --site 2 --candidates all
+<span class="c"># 一键推荐 Cl 的替代元素</span>
+python screen.py POSCAR --element Cl
+
+<span class="c"># 指定候选列表</span>
+python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr
+
+<span class="c"># 指定氧化态（提高准确性）</span>
+python screen.py POSCAR --element V --ox-state 4
 
 <span class="c"># 输出候选 POSCAR + JSON</span>
-python screen.py POSCAR --element Cl --candidates F,Br,I \
-    --ox-state -1 --output-dir ./candidates --json results.json</pre>
+python screen.py POSCAR --element Cl --ox-state -1 \
+    --output-dir ./candidates --json results.json</pre>
 
-<h3>内置元素分组</h3>
+<h3>输出示例</h3>
+<pre><span class="c">=================================================================</span>
+<span class="c">  元素替换推荐 — V in V4S9Cl4</span>
+<span class="c">=================================================================</span>
+  替换     : V
+  电子构型 : d-区 5 族
+  氧化态   : 4
+
+Rank 元素    总分     电子     半径     电负     氧化    族   区块   note
+<span class="c">--------------------------------------------------------------------------------</span>
+1    Nb     0.890   0.900   0.745   0.975   1.00   5    d     同族(5族) | 氧化态兼容
+2    Ta     0.856   0.850   0.745   0.897   1.00   5    d     同族(5族) | 氧化态兼容
+3    Mo     0.579   0.400   0.814   0.643   0.80   6    d     半径匹配</pre>
+
+<div class="note warn">
+<strong>注意：</strong> 评分高 ≠ 声子稳定。电子构型匹配降低了试错成本，
+但最终仍需 DFT + phonopy 验证。尤其是 Se 替换 S（评分高）仍可能因
+电子结构原因出现虚频。
+</div>
 <table>
 <tr><th>名称</th><th>元素</th></tr>
 <tr><td>all</td><td>全部常见元素 (75+)</td></tr>
