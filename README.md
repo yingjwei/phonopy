@@ -139,17 +139,24 @@ python server_pipeline.py bulk POSCAR \
 =================================================================
   Phonon Stability Analysis
 =================================================================
-  Scanned: 12  |  Stable: 5  |  Unstable: 3  |  N/A: 4
-  Threshold: -0.5 THz (min freq below = unstable)
+  Scanned  : 3  |  STABLE: 1  |  ARTIFACT: 1  |  UNSTABLE: 1
 
-System                     Min(THz)     Gamma      #Imag    Status
-------------------------------------------------------------------
-VSCl                       -6.430       IMAG       56       UNSTABLE
-NbSCl                      -2.100       IMAG       12       UNSTABLE
-VSBr                       -0.300       OK         0        STABLE
-NbSBr                      0.500        OK         0        STABLE
-...
+  Gamma-point imaginary modes = correctable artifact (hiphive ASR /
+  rotational sum rule). Only non-Gamma imaginary = real instability.
+
+  System                     Min(THz)   Non-G     #Imag    Status
+-----------------------------------------------------------------
+  pho551                      -6.70      -6.70    684      UNSTABLE
+  VSF-phonon1                 -6.39      --          8    STABLE(Gamma-artifact)
+  VSCl                         0.50       --          0    STABLE
 ```
+
+### Gamma 点伪影识别
+
+判断标准（基于实际实验经验）：
+- **仅 Gamma 点 (q=0) 有虚频** → 声学求和规则 / 旋转求和规则伪影，可安全忽略，无论虚频大小或数量
+- **任何非 Gamma 点 (q≠0) 有虚频** → 真实声子不稳定性，该替换方案不可用
+- 示例：VSF 在 Gamma 点有 -6.39 THz 虚频，但实际验证稳定；pho551 在非 Gamma 点有虚频，属于真实不稳定
 
 ---
 

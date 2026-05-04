@@ -440,22 +440,30 @@ python server_pipeline.py bulk POSCAR \
 <pre><span class="c">================================================================================</span>
 <span class="c">  Phonon Stability Analysis</span>
 <span class="c">================================================================================</span>
-  Scanned: 3
-  STABLE : 1  |  ARTIFACT (ignored): 1
-  UNSTABLE: 1  |  N/A: 0
+  Scanned  : 3  |  STABLE: 1  |  ARTIFACT: 1  |  UNSTABLE: 1
 
-System                       Min(THz)   Non-G    #Imag    Type         Status
+  Gamma-point imaginary modes = correctable artifact (hiphive ASR /
+  rotational sum rule). Only non-Gamma imaginary = real instability.
+
+  System                     Min(THz)   Non-G     #Imag    Status
 <span class="c">---------------------------------------------------------------------------------</span>
-phonopy                      -204.72    -204.72  7202     Real-imag    UNSTABLE
-pho551                        -6.70      -6.70   684      Real-imag    UNSTABLE
-VSF-phonon1                   -6.39      --       8       Gamma-art    STABLE</pre>
+  phonopy                    -204.72    -204.72   7202     UNSTABLE
+  pho551                      -6.70      -6.70    684      UNSTABLE
+  VSF-phonon1                 -6.39      --          8     STABLE(Gamma-artifact)</pre>
 
 <h3>Gamma 点伪影识别</h3>
-<p>分析工具会自动区分两种情况：</p>
+<p>分析工具通过 <strong>q 点位置</strong>（而非虚频大小）判断虚频性质：</p>
 <ul>
-  <li><span class="status-good">Gamma 点小虚频 (&lt;1 THz)</span> → 声学求和规则伪影，<strong>可安全忽略</strong></li>
-  <li><span class="status-bad">非 Gamma 点虚频 / 大虚频 (&gt;1 THz)</span> → <strong>真实声子不稳定性</strong></li>
+  <li><span class="status-good">虚频仅出现在 Gamma 点 (q=0)</span> → 声学求和规则 / 旋转求和规则伪影，
+    可通过 hiphive 修正，<strong>可安全忽略</strong>。无论虚频大小（-0.1 THz 还是 -6 THz）或数量多少，只要集中在 Gamma 点即视为伪影</li>
+  <li><span class="status-bad">任何非 Gamma 点存在虚频 (q&ne;0)</span> → <strong>真实声子不稳定性</strong>，
+    无法通过 ASR 修正，该替换方案不可用</li>
 </ul>
+<div class="note">
+<strong>经验依据：</strong> 您报告的 VSF 体系在 Gamma 点出现 -6.39 THz 虚频（8 个 imaginary mode），
+但实验验证 VSF 稳定。通过 hiphive 的 enforce_rotational_sum_rules() 修正后虚频消失。
+而 pho551 等体系在非 Gamma 点存在虚频，属于真实不稳定。
+</div>
 </section>
 
 <!-- ============================================================ -->

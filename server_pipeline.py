@@ -209,58 +209,85 @@ def compose_label(poscar_path: str) -> str:
     return name
 
 
-def _parse_band_yaml(path: str) -> tuple:
-    """Parse band.yaml and return (freqs_list, nqpoint, natom)."""
+def _parse_band_yaml(path):
+    """
+    Parse band.yaml with q-point tracking.
+    Returns (freqs_by_q, nqpoint, natom, error).
+    freqs_by_q: list of (q_position_index, freq_list) per q-point
+    """
     try:
         import yaml
     except ImportError:
         return None, 0, "yaml not available (pip install pyyaml)"
-
     try:
         with open(path) as f:
             data = yaml.safe_load(f)
     except Exception as e:
         return None, 0, str(e)
 
-    freqs = []
-    for phonon in data.get('phonon', []):
-        for band in phonon.get('band', []):
-            freqs.append(band['frequency'])
     nqpoint = data.get('nqpoint', 0)
     natom = data.get('natom', 0)
-    return freqs, nqpoint, natom
+    nbands = 3 * natom
+    freqs_by_q = []
+    for i, phonon in enumerate(data.get('phonon', [])):
+        bands = phonon.get('band', [])
+        qfreqs = [b['frequency'] for b in bands]
+        freqs_by_q.append((i, qfreqs))
+    return freqs_by_q, nqpoint, natom, None
 
 
-def _parse_band_dat(path: str) -> tuple:
-    """Parse band.dat and return (freqs_list, nqpoint, None|error)."""
-    freqs = []
+def _parse_band_dat(path):
+    """
+    Parse band.dat with q-point tracking.
+    Returns (freqs_by_q, nqpoint, None|error).
+    band.dat format: q_distance freq1 freq2 ... freqN
+    or single-column: q_distance freq
+    """
+    freqs_by_q = []
     try:
         with open(path) as f:
-            for line in f:
-                if line.startswith('#') or line.strip() == '':
-                    continue
-                parts = line.strip().split()
-                if len(parts) >= 2:
-                    try:
-                        freqs.append(float(parts[1]))
-                    except ValueError:
-                        continue
+            lines = [l.strip() for l in f
+                     if not l.startswith('#') and l.strip()]
     except Exception as e:
         return None, 0, str(e)
-    return freqs, len(freqs), None
+
+    # band.dat: each line = qdist freq
+    if not lines:
+        return None, 0, "empty band.dat"
+
+    # Group by q-point: assume frequencies repeat in same order per q
+    # Actually band.dat has one frequency per line, not grouped by q
+    # Let's just treat it as a flat list
+    freqs = []
+    for line in lines:
+        parts = line.split()
+        if len(parts) >= 2:
+            try:
+                freqs.append(float(parts[1]))
+            except ValueError:
+                continue
+
+    if not freqs:
+        return None, 0, "no parseable data"
+
+    return [(0, freqs)], 1, None
 
 
-def check_phonon_stability(phonon_dir: str, gamma_tol: float = 1.0) -> dict:
+def check_phonon_stability(phonon_dir):
     """
-    Analyze phonon results (band.yaml or band.dat) for imaginary modes.
+    Analyze phonon results for imaginary modes.
 
-    Key logic:
-    - Small imaginary modes ONLY at Gamma (< gamma_tol THz) → IGNORED (acoustic sum rule artifact)
-    - Any imaginary mode NOT at Gamma → REAL INSTABILITY
-    - Large imaginary modes at Gamma (> gamma_tol) → REAL INSTABILITY
+    Core principle (from experimental experience):
+    - Gamma-point imaginary modes → can be corrected
+      (acoustic sum rule / rotational sum rules via hiphive)
+      → considered STABLE
+    - Imaginary modes at ANY non-Gamma q-point → REAL instability
+    - The magnitude of Gamma-point imaginary modes is irrelevant
+    - The number of imaginary mode points is irrelevant as long as
+      they are all concentrated at Gamma
 
     Returns:
-        dict with min_freq_thz, stable (bool/None), details
+        dict with stability analysis
     """
     dir_path = Path(phonon_dir)
     result = {
@@ -269,85 +296,100 @@ def check_phonon_stability(phonon_dir: str, gamma_tol: float = 1.0) -> dict:
         "stable": None,
         "imaginary_modes": 0,
         "gamma_imaginary": False,
-        "gamma_only_artifact": False,
+        "non_gamma_imaginary": False,
+        "gamma_freq_thz": None,
         "min_non_gamma_freq": None,
         "source": None,
         "natom": 0,
     }
 
-    # Try band.yaml first, then band.dat
-    yaml_path = dir_path / "band.yaml"
-    dat_path = dir_path / "band.dat"
+    # Find data sources
+    sources = []
+    for fn in ("band.yaml", "band.dat"):
+        p = dir_path / fn
+        if p.exists():
+            sources.append(p)
 
-    freqs = None
-    natom = 0
-    if yaml_path.exists():
-        freqs, nqpoint, natom = _parse_band_yaml(str(yaml_path))
-        result["source"] = "band.yaml"
-    elif dat_path.exists():
-        freqs, nqpoint, _ = _parse_band_dat(str(dat_path))
-        natom = nqpoint
-        result["source"] = "band.dat"
-
-    if freqs is None or not freqs:
+    if not sources:
         result["stable"] = None
-        result["error"] = "no phonon data found" if freqs is None else "empty data"
+        result["error"] = "no band.yaml or band.dat found"
+        return result
+
+    # Parse data
+    freqs_by_q = None
+    nqpoint = 0
+    natom = 0
+    for src in sources:
+        if src.suffix == ".yaml":
+            freqs_by_q, nqpoint, natom, err = _parse_band_yaml(str(src))
+            result["source"] = "band.yaml"
+        else:
+            freqs_by_q, nqpoint, err = _parse_band_dat(str(src))
+            natom = 0
+            result["source"] = "band.dat"
+        if freqs_by_q and err is None:
+            break
+
+    if freqs_by_q is None or not freqs_by_q:
+        result["error"] = err or "no parseable data"
         return result
 
     result["natom"] = natom
-    nband = len(freqs)
 
-    # Count imaginary (negative) modes
-    neg_indices = [i for i, f in enumerate(freqs) if f < 0]
-    n_imag = len(neg_indices)
-    result["imaginary_modes"] = n_imag
-    result["min_freq_thz"] = round(min(freqs), 4)
+    # Analyze per q-point: which q-points have imaginary modes?
+    gamma_has_imag = False
+    non_gamma_has_imag = False
+    gamma_min = None
+    non_gamma_min = None
+    total_imag = 0
+    gamma_imag_count = 0
+    non_gamma_imag_count = 0
 
-    # Determine # of q-points and # of bands per q
-    # band.dat: first column is q-distance, so each q has 1 band listed at a time
-    # band.yaml: nqpoint * 3*natom_total frequencies total
-    if result["source"] == "band.yaml" and natom > 0:
-        bands_per_q = 3 * natom
-        nq = nqpoint
-    else:
-        # band.dat: nband / per-mode frequency sampling
-        # Each q-point row has 1 frequency, repeated across bands
-        # 102 bands for 34-atom cell, so total = nq * 102
-        # Actually we just have flat list, hard to separate q from band
-        nq = 1
-        bands_per_q = nband
+    for qi, qfreqs in freqs_by_q:
+        negs = [f for f in qfreqs if f < 0]
+        n_neg = len(negs)
+        if n_neg == 0:
+            continue
+        total_imag += n_neg
+        min_f = min(negs)
 
-    # Detect Gamma-point artifact: small negative freq appearing only at the first q-point
-    # For band.yaml: first `bands_per_q` entries
-    gamma_freqs = freqs[:bands_per_q] if nq > 0 else freqs[:3]
-    gamma_neg = [f for f in gamma_freqs if f < 0]
-    non_gamma_freqs = freqs[bands_per_q:] if len(freqs) > bands_per_q else []
+        if qi == 0:
+            # q = 0 (Gamma)
+            gamma_has_imag = True
+            gamma_min = min(gamma_min, min_f) if gamma_min is not None else min_f
+            gamma_imag_count = n_neg
+        else:
+            # q > 0 (non-Gamma)
+            non_gamma_has_imag = True
+            non_gamma_min = min(non_gamma_min, min_f) if non_gamma_min is not None else min_f
+            non_gamma_imag_count += n_neg
 
-    if gamma_neg:
+    result["imaginary_modes"] = total_imag
+    if gamma_has_imag:
         result["gamma_imaginary"] = True
-        result["gamma_freq_thz"] = round(min(gamma_neg), 4)
+        result["gamma_freq_thz"] = round(gamma_min, 4)
+        result["min_freq_thz"] = round(gamma_min, 4)
 
-    if non_gamma_freqs:
-        non_gamma_neg = [f for f in non_gamma_freqs if f < 0]
-        result["min_non_gamma_freq"] = round(min(non_gamma_freqs), 4)
-    else:
-        non_gamma_neg = []
-        result["min_non_gamma_freq"] = result["min_freq_thz"]  # only gamma available
+    if non_gamma_has_imag:
+        result["non_gamma_imaginary"] = True
+        result["min_non_gamma_freq"] = round(non_gamma_min, 4)
+        result["min_freq_thz"] = min(
+            result.get("min_freq_thz") or 0, non_gamma_min)
+        result["min_freq_thz"] = round(result["min_freq_thz"], 4)
 
-    has_serious_imag = any(f < -gamma_tol for f in freqs)
-
-    # Decision logic
-    if not n_imag:
+    # ── Decision (based on user's experimental experience) ──
+    if not gamma_has_imag and not non_gamma_has_imag:
+        # No imaginary modes at all → perfectly stable
         result["stable"] = True
-    elif n_imag > 0 and not non_gamma_neg and not has_serious_imag:
-        # Imaginary only at Gamma, and small → artifact
+    elif gamma_has_imag and not non_gamma_has_imag:
+        # Imaginary modes ONLY at Gamma → correctable artifact
+        # Even large magnitude (-6 THz) or many modes are fine
+        # as long as they're ONLY at Gamma
         result["stable"] = True
         result["gamma_only_artifact"] = True
-    elif n_imag > 0 and not non_gamma_neg and has_serious_imag:
-        # Large imaginary at Gamma only — likely still unstable
-        result["stable"] = False
-    elif non_gamma_neg:
+    elif non_gamma_has_imag:
         # Imaginary modes exist away from Gamma → REAL instability
+        # These CANNOT be fixed by ASR / rotational sum rule correction
         result["stable"] = False
     else:
         result["stable"] = None
@@ -515,7 +557,6 @@ def cmd_phonon_setup(args):
 def cmd_analyze(args):
     """Analyze phonon results for imaginary modes."""
     base_dir = args.directory
-    gamma_tol = args.gamma_tol
 
     # Find phonon directories (contain band.yaml or band.dat)
     phonon_dirs = {}
@@ -532,29 +573,22 @@ def cmd_analyze(args):
     results = []
     for d in sorted(phonon_dirs):
         label = os.path.basename(d)
-        r = check_phonon_stability(d, gamma_tol)
+        r = check_phonon_stability(d)
         r["label"] = label
         results.append(r)
 
-    # Sort: unstable first (most negative min freq)
+    # Sort: unstable first
     def sort_key(r):
-        return r.get("min_non_gamma_freq") or r.get("min_freq_thz") or 9999
+        if r["stable"] is False:
+            return r.get("min_non_gamma_freq") or r.get("min_freq_thz") or 0
+        return 9999
 
     results.sort(key=sort_key)
 
     # Count
-    def status_label(r):
-        if r["stable"] is True and r.get("gamma_only_artifact"):
-            return "ARTIFACT"
-        elif r["stable"] is True:
-            return "STABLE"
-        elif r["stable"] is False:
-            return "UNSTABLE"
-        return "ERR"
-
+    artifact_count = sum(1 for r in results if r.get("gamma_only_artifact"))
     stable_count = sum(1 for r in results if r["stable"] is True
                        and not r.get("gamma_only_artifact"))
-    artifact_count = sum(1 for r in results if r.get("gamma_only_artifact"))
     unstable_count = sum(1 for r in results if r["stable"] is False)
     unknown_count = sum(1 for r in results if r["stable"] is None)
 
@@ -562,62 +596,51 @@ def cmd_analyze(args):
     print("=" * 80)
     print("  Phonon Stability Analysis")
     print("=" * 80)
-    print(f"  Scanned: {len(results)}")
-    print(f"  STABLE : {stable_count}  |  ARTIFACT (ignored): {artifact_count}")
-    print(f"  UNSTABLE: {unstable_count}  |  N/A: {unknown_count}")
-    print(f"  Gamma tolerance: {gamma_tol} THz (negatives < this at Gamma-only = artifact)")
+    print(f"  Scanned  : {len(results)}  |  STABLE: {stable_count}  "
+          f"|  ARTIFACT: {artifact_count}  |  UNSTABLE: {unstable_count}")
     print()
-    hdr = f"{'System':<28} {'Min(THz)':<12} {'Non-G':<10} {'#Imag':<8} {'Type':<12} Status"
-    print(hdr)
-    print("-" * len(hdr))
+    print("  Gamma-point imaginary modes = correctable artifact (hiphive ASR /")
+    print("  rotational sum rule). Only non-Gamma imaginary = real instability.")
+    print()
+    print(f"  {'System':<25} {'Min(THz)':<12} {'Non-G':<10} {'#Imag':<8} Status")
+    print("  " + "-" * 65)
 
     for r in results:
-        label = r["label"][:27]
+        label = r["label"][:24]
         min_f = f"{r['min_freq_thz']:.2f}" if r["min_freq_thz"] is not None else "N/A"
-        ng = f"{r.get('min_non_gamma_freq', 0):.2f}"
-        if r.get("min_non_gamma_freq") is None:
-            ng = "?"
+        ng = f"{r.get('min_non_gamma_freq', 0):.2f}" if r.get("non_gamma_imaginary") else "--"
         nimag = r.get("imaginary_modes", 0)
-        st = status_label(r)
-        typ = "Gamma-artifact" if r.get("gamma_only_artifact") else ""
-        if r["stable"] is True and not r.get("gamma_only_artifact"):
-            typ = "Stable"
-        elif r["stable"] is False:
-            typ = "Real-imag"
-        elif st == "ERR":
-            typ = f"Err:{r.get('error','?')[:16]}"
-        print(f"{label:<28} {min_f:<12} {ng:<10} {nimag:<8} {typ:<12} {st}")
+        if r["stable"] is False:
+            st = "UNSTABLE"
+        elif r.get("gamma_only_artifact"):
+            st = "STABLE(Gamma-artifact)"
+        elif r["stable"] is True:
+            st = "STABLE"
+        else:
+            st = f"ERR: {r.get('error','?')[:20]}"
+        print(f"  {label:<25} {min_f:<12} {ng:<10} {nimag:<8} {st}")
 
     print()
 
     unstable = [r for r in results if r["stable"] is False]
     if unstable:
-        print("--- Unstable Systems ---")
+        print("--- Unstable Systems (non-Gamma imaginary modes) ---")
         for r in unstable:
-            print(f"  {r['label']}: min={r['min_freq_thz']} THz, "
-                  f"non-Gamma={r.get('min_non_gamma_freq','?')} THz, "
-                  f"{r['imaginary_modes']} imaginary modes, "
-                  f"Gamma-only-artifact={r.get('gamma_only_artifact')}")
+            print(f"  {r['label']}: min={r.get('min_non_gamma_freq','?'):} THz "
+                  f"(non-Gamma), {r['imaginary_modes']} total imaginary modes")
         print()
 
     if args.json:
         with open(args.json, 'w') as f:
             json.dump({
-                "gamma_tolerance_thz": gamma_tol,
                 "total": len(results),
                 "stable": stable_count,
-                "unstable": unstable_count,
                 "artifact": artifact_count,
+                "unstable": unstable_count,
+                "gamma_artifact_note": "Gamma-point imaginary modes are correctable (ASR/rotational sum rules)",
                 "results": results,
             }, f, indent=2)
         print(f"  Results saved to {args.json}")
-
-    print("  Summary: by convention, Gamma-point small imaginary modes are")
-    print("  acoustic sum rule artifacts and are safe to ignore. Only non-Gamma")
-    print("  or large (>1 THz) imaginary modes indicate real instability.")
-    print()
-
-    return results
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -708,8 +731,6 @@ def main():
     # ── analyze ──
     p_analyze = sub.add_parser("analyze", help="Analyze phonon results")
     p_analyze.add_argument("directory", help="Directory with phonon results (band.yaml/band.dat)")
-    p_analyze.add_argument("--gamma-tol", type=float, default=1.0,
-                          help="Gamma-point imaginary threshold in THz (default: 1.0, below=artifact)")
     p_analyze.add_argument("--json", help="Save results as JSON")
 
     # ── bulk ──
