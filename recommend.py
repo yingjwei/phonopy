@@ -2,13 +2,14 @@
 """
 2D Material Element Substitution Recommender
 =============================================
-推荐引擎基于 125+ 组 DFT+phonopy 声子稳定性数据 + 化学启发式评分。
+基于化学兼容性 + 几何兼容性的元素替换推荐系统。
+不依赖具体结构类型匹配，适用于任意新结构。
 
 用法:
   python recommend.py POSCAR --element V                  # 自动推荐 V 的替代元素
+  python recommend.py POSCAR --element V --candidates Nb,Ta,Mo,W  # 指定候选
   python recommend.py POSCAR --element V --top 10         # 只看 Top 10
-  python recommend.py POSCAR --element Cl --candidates F,Br,I  # 指定候选范围
-  python recommend.py POSCAR --element V --json result.json    # 输出 JSON
+  python recommend.py POSCAR --element V --json result.json   # 输出 JSON
 """
 
 import argparse
@@ -28,10 +29,7 @@ except ImportError:
     print("需要 pymatgen: pip install pymatgen", file=sys.stderr)
     sys.exit(1)
 
-from phonon_data import (
-    ALL_STRUCTURES, V4S9Br4_TYPE, W6CCl16_TYPE, PbNV_TYPE,
-    lookup_substitutions, get_parent_by_name,
-)
+from phonon_data import ALL_STRUCTURES
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -76,68 +74,110 @@ GROUPS = {
 
 
 # ═══════════════════════════════════════════════════════════════
-# Structure matching — identify parent from POSCAR
+# Cross-structure database trends (general, not structure-specific)
 # ═══════════════════════════════════════════════════════════════
 
-def match_parent_structure(structure):
-    """Identify the parent structure type from lattice + elements."""
-    lattice = structure.lattice
-    a, b, c = lattice.a, lattice.b, lattice.c
-    alpha, beta, gamma = lattice.alpha, lattice.beta, lattice.gamma
-    elements = {str(spec) for site in structure for spec in site.species}
-    n_atoms = len(structure)
+def _build_global_trends():
+    """
+    From the phonon database, extract which elements have been found
+    stable/unstable ACROSS all structure types. This gives a general
+    indication (not structure-specific).
+    """
+    stable_all = set()
+    unstable_all = set()
+    for struct in ALL_STRUCTURES:
+        for key in struct:
+            if key.endswith("_substitutions"):
+                stable_all.update(struct[key].get("stable", []))
+                unstable_all.update(struct[key].get("unstable", []))
+    # Some elements appear in both (paired stability)
+    return stable_all, unstable_all
 
-    # V4S9Br4-type: tetragonal P4/nmm, a≈11-13, c≈24-26
-    if (abs(alpha - 90) < 1 and abs(beta - 90) < 1 and abs(gamma - 90) < 1
-            and abs(a - b) / a < 0.05
-            and 10.5 < a < 13.5
-            and 23 < c < 27
-            and n_atoms == 34):
-        return V4S9Br4_TYPE, "V₄S₉Br₄-type (P4/nmm) 结构"
-
-    # W6CCl16-type
-    if "C" in elements and n_atoms >= 15:
-        return W6CCl16_TYPE, "W₆CCl₁₆-type 结构"
-
-    # PbNV-type: ternary nitride
-    if "N" in elements and 2 < n_atoms < 20:
-        return PbNV_TYPE, "PbNV-type 结构"
-
-    return None, "未知结构（数据库中无匹配）"
-
-
-def get_site_label(parent, element_symbol, structure):
-    """Determine which site the element occupies in the structure."""
-    if parent is None:
-        return None
-    elements = [str(spec) for site in structure for spec in site.species]
-    unique = sorted(set(elements))
-
-    if parent == V4S9Br4_TYPE:
-        # M (metal, group 3-12), S (chalcogen), X (halogen)
-        if element_symbol in ["S", "Se", "Te"]:
-            return "S"
-        if element_symbol in ["F", "Cl", "Br", "I"]:
-            return "X"
-        return "M"  # default for metals
-
-    if parent == W6CCl16_TYPE:
-        if element_symbol == "C":
-            return "C"
-        if element_symbol in ["F", "Cl", "Br", "I"]:
-            return "X"
-        return "M"
-
-    if parent == PbNV_TYPE:
-        if element_symbol == "N":
-            return "N"
-        return "M"
-
-    return None
+GLOBAL_STABLE, GLOBAL_UNSTABLE = _build_global_trends()
 
 
 # ═══════════════════════════════════════════════════════════════
-# Scoring — five chemical dimensions
+# Geometric analysis from POSCAR
+# ═══════════════════════════════════════════════════════════════
+
+def analyze_bond_lengths(structure, site_indices):
+    """
+    Calculate average nearest-neighbor distance for the host sites.
+    This gives a real-space measure of the space available at the site.
+
+    Returns:
+        avg_bond_length: average NN distance (Å)
+        n_neighbors: number of neighbors found
+    """
+    site = structure[site_indices[0]]
+    # Find neighbors up to 4 Å or half the shortest lattice vector
+    max_r = min(structure.lattice.a, structure.lattice.b,
+                structure.lattice.c) * 0.6
+    max_r = min(max_r, 4.0)  # cap at 4 Å for efficiency
+
+    neighbors = structure.get_neighbors(site, max_r)
+    if not neighbors:
+        return None, 0
+
+    distances = [n.distance for n in neighbors
+                 if n.distance > 0.1]  # filter self
+    if not distances:
+        return None, 0
+
+    return float(np.mean(distances)), len(distances)
+
+
+def score_geometric(host_el, cand_el, avg_bond_length, n_neighbors):
+    """
+    Score based on geometric compatibility from actual POSCAR bond lengths.
+
+    Logic:
+    - avg_bond_length ≈ r_host_eff + r_neighbor_eff
+    - If we replace host with cand, new bond length ≈ r_cand + (avg - r_host)
+    - Strain = |new - avg| / avg
+    - High strain → lattice distortion → likely phonon instability
+    """
+    if avg_bond_length is None:
+        return 0.50, ""
+
+    r_host = host_el.atomic_radius
+    r_cand = cand_el.atomic_radius
+    if not r_host or not r_cand or r_host <= 0:
+        return 0.50, ""
+
+    # Estimate the host's effective contribution to the bond
+    # (crude: assume half the bond length is the host)
+    # Better: r_host_eff = min(r_host, avg_bond_length * 0.6)
+    r_host_eff = r_host
+
+    # Predicted bond length with candidate
+    r_cand_eff = r_cand
+    predicted_bond = avg_bond_length - r_host_eff + r_cand_eff
+
+    if predicted_bond <= 0:
+        return 0.10, "半径过大"
+
+    # Strain ratio
+    strain = abs(predicted_bond - avg_bond_length) / avg_bond_length
+
+    # Score: exp(-5 * strain) — 5% strain → 0.78, 10% → 0.61, 20% → 0.37
+    score = exp(-5.0 * strain)
+
+    # Note
+    if strain < 0.03:
+        note = ""
+    elif strain < 0.08:
+        note = f"应变 {strain*100:.1f}%"
+    elif strain < 0.15:
+        note = f"应变 {strain*100:.1f}%(偏高)"
+    else:
+        note = f"应变 {strain*100:.1f}%(高)"
+
+    return score, note
+
+
+# ═══════════════════════════════════════════════════════════════
+# Scoring — chemical dimensions (structure-transferable)
 # ═══════════════════════════════════════════════════════════════
 
 def _get_ionic_radius(el, ox, cn):
@@ -169,6 +209,7 @@ def guess_oxidation(structure, site_idx):
 
 
 def score_radius(host_el, cand_el, ox, cn):
+    """Ionic radius compatibility — key indicator of lattice strain."""
     rh = _get_ionic_radius(host_el, ox, cn) or host_el.atomic_radius
     rc = _get_ionic_radius(cand_el, ox, cn) or cand_el.atomic_radius
     if not rh or not rc or rh <= 0:
@@ -177,6 +218,7 @@ def score_radius(host_el, cand_el, ox, cn):
 
 
 def score_en(host_el, cand_el):
+    """Electronegativity similarity → similar bond character."""
     try:
         return exp(-abs(host_el.X - cand_el.X) / 1.2)
     except Exception:
@@ -184,6 +226,7 @@ def score_en(host_el, cand_el):
 
 
 def score_os(host_el, cand_el, target_ox):
+    """Oxidation state compatibility → charge balance."""
     css = cand_el.common_oxidation_states
     if not css:
         return 0.30
@@ -200,7 +243,10 @@ def score_os(host_el, cand_el, target_ox):
 
 
 def score_electronic(host_el, cand_el):
-    """Electronic configuration compatibility."""
+    """
+    Electronic configuration compatibility.
+    Same group = same d-electron count = similar bonding.
+    """
     try:
         same_block = host_el.block == cand_el.block
         group_diff = abs(host_el.group - cand_el.group)
@@ -223,51 +269,22 @@ def score_electronic(host_el, cand_el):
     return min(score, 1.0)
 
 
-# ═══════════════════════════════════════════════════════════════
-# Empirical phonon stability score
-# ═══════════════════════════════════════════════════════════════
-
-def score_empirical(cand_sym, host_sym, parent, site_label, siblings):
+def score_global_trend(cand_sym):
     """
-    Score based on phonon stability database.
-
-    Rules:
-    - Tested and stable in this parent        → +1.0
-    - Tested and stable but in MSX-only form  → +0.5 (less reliable)
-    - Tested and unstable in this parent      → -0.5
-    - Tested and unstable in MSX-only form    → -0.3
-    - Untested                                →  0.0 (neutral)
+    Cross-structure trend from the database:
+    - Element has ONLY been found stable across all tested structures → small bonus
+    - Element has ONLY been found unstable → small penalty
+    - Mixed or untested → neutral
     """
-    if parent is None:
-        return 0.0, "无数据库匹配"
-
-    subs_key = f"{site_label}_substitutions"
-    subs = parent.get(subs_key)
-
-    if subs is None:
-        return 0.0, "无该位点数据"
-
-    stable_set = set(subs.get("stable", []))
-    unstable_set = set(subs.get("unstable", []))
-    msx_set = set(parent.get("MSX_only", []))
-
-    # Check paired stability
-    paired = parent.get("paired_stability", {})
-    if cand_sym in paired:
-        for sibling in siblings:
-            if sibling in paired[cand_sym].get("stable_with", []):
-                return 1.0, f"数据库: {cand_sym} 与 {sibling} 组合稳定"
-            if sibling in paired[cand_sym].get("unstable_with", []):
-                return -0.5, f"数据库: {cand_sym} 与 {sibling} 组合不稳定"
-
-    if cand_sym in stable_set:
-        return 1.0, "数据库: 该替换在类似结构中稳定"
-    if cand_sym in msx_set:
-        return 0.5, "数据库: 仅 MSX 形式测试过(不可靠)"
-    if cand_sym in unstable_set:
-        return -0.5, "数据库: 该替换在类似结构中不稳定"
-
-    return 0.0, "数据库: 无该替换数据(中性)"
+    in_stable = cand_sym in GLOBAL_STABLE
+    in_unstable = cand_sym in GLOBAL_UNSTABLE
+    if in_stable and not in_unstable:
+        return 0.20, "数据库趋势: 该元素在多结构中表现稳定"
+    if in_unstable and not in_stable:
+        return -0.10, "数据库趋势: 该元素在多结构中表现不稳定"
+    if in_stable and in_unstable:
+        return 0.05, "数据库趋势: 该元素稳定性依赖具体组合"
+    return 0.0, ""
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -278,11 +295,12 @@ def score_empirical(cand_sym, host_sym, parent, site_label, siblings):
 class Hit:
     symbol: str
     total: float
-    empirical: float
+    geometric: float
     electronic: float
     radius: float
     en: float
     os: float
+    trend: float
     r_host: Optional[float]
     r_cand: Optional[float]
     en_host: float
@@ -291,8 +309,9 @@ class Hit:
     host_block: str
     cand_group: int
     cand_block: str
-    emp_note: str = ""
-    status: str = ""
+    bond_length: Optional[float] = None
+    geo_note: str = ""
+    trend_note: str = ""
 
     @property
     def as_dict(self):
@@ -303,16 +322,22 @@ class Hit:
 # Core recommendation
 # ═══════════════════════════════════════════════════════════════
 
-# Default weights: [empirical, electronic, radius, EN, OS]
-# empirical权重最高 — 实际声子计算结果最有说服力
-DEFAULT_WEIGHTS = [0.40, 0.25, 0.15, 0.10, 0.10]
+# Weights: [geometric, electronic, radius, EN, OS, trend]
+# geometric从POSCAR实际键长分析 → 最直接反映晶格失配
+DEFAULT_WEIGHTS = [0.30, 0.25, 0.15, 0.10, 0.10, 0.10]
 
 
 def recommend(structure, host_sym, ox, candidates, weights,
-              parent, site_label, siblings):
-    """Main recommendation engine."""
+              site_indices):
     host = Element(host_sym)
     hits = []
+
+    # Geometric analysis from POSCAR
+    avg_bond, n_nb = analyze_bond_lengths(structure, site_indices)
+    if avg_bond:
+        bond_info = f"平均键长 {avg_bond:.3f} Å ({n_nb} 个近邻)"
+    else:
+        bond_info = "无法解析键长"
 
     for sym in candidates:
         if sym == host_sym:
@@ -322,66 +347,53 @@ def recommend(structure, host_sym, ox, candidates, weights,
         except Exception:
             continue
 
-        # Chemical scores
+        # Geometric score (from POSCAR bond analysis)
+        geo, geo_note = score_geometric(host, cand, avg_bond, n_nb)
+
+        # Chemical scores (structure-transferable)
         rs = score_radius(host, cand, ox, 6)
         es = score_en(host, cand)
         os_ = score_os(host, cand, ox)
         ec = score_electronic(host, cand)
 
-        # Empirical phonon stability score
-        emp_score, emp_note = score_empirical(
-            sym, host_sym, parent, site_label, siblings)
+        # Global database trend (cross-structure)
+        tr, trend_note = score_global_trend(sym)
 
         # Total = weighted sum
-        total = (weights[0] * emp_score
+        total = (weights[0] * geo
                  + weights[1] * ec
                  + weights[2] * rs
                  + weights[3] * es
-                 + weights[4] * os_)
+                 + weights[4] * os_
+                 + weights[5] * tr)
 
-        # Normalize to [0, 1] range for display
-        # (empirical can be negative, so shift)
-        # Actually just keep raw — higher = better
+        total = max(0.0, min(1.0, total))
 
         rh = _get_ionic_radius(host, ox, 6) or host.atomic_radius
         rc = _get_ionic_radius(cand, ox, 6) or cand.atomic_radius
 
-        # Status label
-        if emp_score > 0.5:
-            status = "★ 稳定"
-        elif emp_score > 0:
-            status = "◑ 部分稳定"
-        elif emp_score == 0:
-            status = "○ 未验证"
-        else:
-            status = "✗ 不稳定"
-
         hits.append(Hit(
             symbol=sym, total=total,
-            empirical=emp_score,
-            electronic=ec,
-            radius=rs, en=es, os=os_,
+            geometric=geo, electronic=ec,
+            radius=rs, en=es, os=os_, trend=tr,
             r_host=rh, r_cand=rc,
             en_host=host.X, en_cand=cand.X,
             host_group=host.group, host_block=host.block,
             cand_group=cand.group, cand_block=cand.block,
-            emp_note=emp_note,
-            status=status,
+            bond_length=avg_bond,
+            geo_note=geo_note,
+            trend_note=trend_note,
         ))
 
     hits.sort(key=lambda h: h.total, reverse=True)
-    return hits
+    return hits, bond_info
 
 
 # ═══════════════════════════════════════════════════════════════
 # Auto-candidates
 # ═══════════════════════════════════════════════════════════════
 
-def auto_candidates(host_sym, parent=None, site_label=None):
-    """
-    Generate candidate substitution elements.
-    Priority: database-verified > same group > same block neighbor > same row.
-    """
+def auto_candidates(host_sym):
     host = Element(host_sym)
     hg = host.group
     hb = host.block
@@ -389,24 +401,14 @@ def auto_candidates(host_sym, parent=None, site_label=None):
     cands = []
     seen = {host_sym}
 
-    # 0. Database-verified candidates first (stable in this structure)
-    if parent is not None and site_label is not None:
-        subs_key = f"{site_label}_substitutions"
-        subs = parent.get(subs_key)
-        if subs:
-            for el in subs.get("stable", []):
-                if el not in seen:
-                    cands.append(el)
-                    seen.add(el)
-
-    # 0b. Always include lanthanides for d-block hosts
+    # 0. Lanthanides for d-block hosts
     if hb == 'd':
         for el in GROUPS["lanthanide"]:
             if el not in seen:
                 cands.append(el)
                 seen.add(el)
 
-    # 1. Same group
+    # 1. Same group (most important)
     for el in ALL_EL:
         if el not in seen:
             try:
@@ -455,36 +457,44 @@ def auto_candidates(host_sym, parent=None, site_label=None):
 # Formatting
 # ═══════════════════════════════════════════════════════════════
 
-def table(hits, top_n, parent_name):
-    """Display formatted results table."""
+def table(hits, top_n, bond_info):
     SEP = "-" * 100
 
-    header_info = (
+    header = (
         "  评分说明:\n"
-        "  ★ 稳定  = 数据库中该替换在类似结构中声子稳定\n"
-        "  ✗ 不稳定 = 数据库中该替换在类似结构中声子不稳定\n"
-        "  ○ 未验证 = 数据库中无该替换数据，化学分仅供参考\n"
-        "  总分 = 经验×0.40 + 电子×0.25 + 半径×0.15 + 电负×0.10 + 氧化×0.10"
+        "  几何 = 从POSCAR实际键长分析替换后晶格应变 (权重0.30)\n"
+        "  电子 = 同族d电子数匹配度 (权重0.25)\n"
+        "  半径 = 离子半径兼容性 (权重0.15)\n"
+        "  电负 = 电负性相似度 (权重0.10)\n"
+        "  氧化 = 氧化态兼容性 (权重0.10)\n"
+        "  趋势 = 数据库跨界趋势 (权重0.10)\n"
+        "  总分高 ≠ 保证声子稳定，需 DFT 验证"
     )
 
     fmt = (
-        "{rank:<4} {el:<6} {total:<7} {emp:<7} {ec:<7} "
-        "{r:<7} {en:<6} {os:<6} {status:<10} {note}"
+        "{rank:<4} {el:<6} {total:<7} {geo:<7} {ec:<7} "
+        "{r:<7} {en:<6} {os:<6} {tr:<5} note"
     )
-    lines = [header_info, ""]
-    lines.append(f"  匹配结构: {parent_name}")
+    lines = [header, ""]
+    lines.append(f"  键长分析: {bond_info}")
     lines.append("")
     lines.append(fmt.format(
-        rank="Rank", el="元素", total="总分", emp="经验分",
-        ec="电子", r="半径", en="电负", os="氧化",
-        status="状态", note="说明"
+        rank="Rank", el="元素", total="总分", geo="几何",
+        ec="电子", r="半径", en="电负", os="氧化", tr="趋势"
     ))
     lines.append(SEP)
     for i, h in enumerate(hits[:top_n], 1):
+        # Build note from non-empty, non-default notes
+        notes = []
+        if h.geo_note:
+            notes.append(h.geo_note)
+        if h.trend_note:
+            notes.append(h.trend_note[:30])
+        note_str = " | ".join(notes) if notes else ""
         lines.append(
-            f"{i:<4} {h.symbol:<6} {h.total:<7.3f} {h.empirical:<7.2f} "
+            f"{i:<4} {h.symbol:<6} {h.total:<7.3f} {h.geometric:<7.3f} "
             f"{h.electronic:<7.3f} {h.radius:<7.3f} {h.en:<7.3f} "
-            f"{h.os:<6.2f} {h.status:<10} {h.emp_note[:40]}"
+            f"{h.os:<6.2f} {h.trend:<5.2f} {note_str[:40]}"
         )
     return "\n".join(lines)
 
@@ -532,16 +542,14 @@ def main():
                     help="排除的元素（逗号分隔）")
     ap.add_argument("--ox-state", type=int,
                     help="目标氧化态（推荐指定）")
-    ap.add_argument("--weights", type=float, nargs=5,
+    ap.add_argument("--weights", type=float, nargs=6,
                     default=DEFAULT_WEIGHTS,
-                    help="权重：经验 电子 半径 电负 氧化 "
+                    help="权重：几何 电子 半径 电负 氧化 趋势 "
                          f"(默认: {' '.join(map(str, DEFAULT_WEIGHTS))})")
     ap.add_argument("--top", type=int, default=15,
                     help="显示前 N 个 (默认: 15)")
     ap.add_argument("--json",
                     help="保存结果为 JSON")
-    ap.add_argument("--no-auto", action="store_true",
-                    help="不使用数据库自动候选，仅用化学启发式")
     args = ap.parse_args()
 
     # ── Read POSCAR ──
@@ -576,26 +584,13 @@ def main():
     # ── Oxidation state ──
     ox = args.ox_state or guess_oxidation(struct, sites[0])
 
-    # ── Match parent structure ──
-    parent, parent_name = match_parent_structure(struct)
-    site_label = get_site_label(parent, host_sym, struct)
-
-    # ── Sibling elements (for paired stability check) ──
-    siblings = [str(spec) for site in struct
-                for spec in site.species
-                if str(spec) != host_sym]
-
     # ── Candidates ──
     if args.candidates:
         cands = resolve_candidates(args.candidates)
-    elif args.no_auto:
-        cands = [e for e in ALL_EL if e not in EXCLUDE and e != host_sym]
     else:
-        cands = auto_candidates(host_sym, parent, site_label)
-        n_db = sum(1 for c in cands
-                   if parent and parent.get(f"{site_label}_substitutions", {})
-                   .get("stable", []).count(c) > 0) if site_label else 0
-        print(f"  (自动生成了 {len(cands)} 个候选，含 {n_db} 个数据库稳定项)")
+        cands = auto_candidates(host_sym)
+        print(f"  (自动生成了 {len(cands)} 个候选，"
+              f"可用 --candidates 自定义)")
 
     if args.exclude:
         xs = set(s.strip() for s in args.exclude.split(","))
@@ -604,23 +599,20 @@ def main():
 
     # ── Score ──
     w = args.weights
-    hits = recommend(struct, host_sym, ox, cands, w,
-                     parent, site_label, siblings)
+    hits, bond_info = recommend(struct, host_sym, ox, cands, w, sites)
 
     # ── Output ──
     fmt = struct.composition.reduced_formula
     print()
     print("=" * 70)
-    print(f"  元素替换推荐引擎 — {host_sym} in {fmt}")
+    print(f"  元素替换推荐 — {host_sym} in {fmt}")
     print("=" * 70)
     print(f"  POSCAR     : {args.poscar}")
     print(f"  替换元素   : {host_sym}")
     print(f"  电子构型   : {host_el.block}-区 {host_el.group} 族")
     print(f"  氧化态     : {ox or '自动检测失败(用 --ox-state 指定)'}")
-    print(f"  匹配结构   : {parent_name}")
-    print(f"  位点角色   : {site_label or '未知'}")
     print()
-    print(table(hits, args.top, parent_name))
+    print(table(hits, args.top, bond_info))
     print()
 
     # ── JSON ──
@@ -630,12 +622,11 @@ def main():
             "host": host_sym, "block": host_el.block,
             "group": host_el.group,
             "oxidation": ox,
-            "parent_structure": parent_name,
-            "site_label": site_label,
             "num_candidates": len(cands),
             "top_n": args.top,
             "weights": dict(zip(
-                ["empirical", "electronic", "radius", "en", "os"], w)),
+                ["geometric", "electronic", "radius", "en", "os", "trend"],
+                w)),
         }
         with open(args.json, "w") as f:
             f.write(to_json(hits, meta, args.top))
