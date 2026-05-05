@@ -458,43 +458,15 @@ def auto_candidates(host_sym):
 # ═══════════════════════════════════════════════════════════════
 
 def table(hits, top_n, bond_info):
-    SEP = "-" * 100
+    SEP = "-" * 88
 
-    header = (
-        "  评分说明:\n"
-        "  几何 = 从POSCAR实际键长分析替换后晶格应变 (权重0.30)\n"
-        "  电子 = 同族d电子数匹配度 (权重0.25)\n"
-        "  半径 = 离子半径兼容性 (权重0.15)\n"
-        "  电负 = 电负性相似度 (权重0.10)\n"
-        "  氧化 = 氧化态兼容性 (权重0.10)\n"
-        "  趋势 = 数据库跨界趋势 (权重0.10)\n"
-        "  总分高 ≠ 保证声子稳定，需 DFT 验证"
-    )
-
-    fmt = (
-        "{rank:<4} {el:<6} {total:<7} {geo:<7} {ec:<7} "
-        "{r:<7} {en:<6} {os:<6} {tr:<5} note"
-    )
-    lines = [header, ""]
-    lines.append(f"  键长分析: {bond_info}")
-    lines.append("")
-    lines.append(fmt.format(
-        rank="Rank", el="元素", total="总分", geo="几何",
-        ec="电子", r="半径", en="电负", os="氧化", tr="趋势"
-    ))
+    lines = [f"  键长分析: {bond_info}", ""]
+    lines.append(f"  {'Rank':<4} {'元素':<6} {'总分':<7} {'几何':<7} {'电子':<7} {'半径':<7} {'电负':<6} {'氧化':<6}")
     lines.append(SEP)
     for i, h in enumerate(hits[:top_n], 1):
-        # Build note from non-empty, non-default notes
-        notes = []
-        if h.geo_note:
-            notes.append(h.geo_note)
-        if h.trend_note:
-            notes.append(h.trend_note[:30])
-        note_str = " | ".join(notes) if notes else ""
         lines.append(
-            f"{i:<4} {h.symbol:<6} {h.total:<7.3f} {h.geometric:<7.3f} "
-            f"{h.electronic:<7.3f} {h.radius:<7.3f} {h.en:<7.3f} "
-            f"{h.os:<6.2f} {h.trend:<5.2f} {note_str[:40]}"
+            f"  {i:<4} {h.symbol:<6} {h.total:<7.3f} {h.geometric:<7.3f} "
+            f"{h.electronic:<7.3f} {h.radius:<7.3f} {h.en:<7.3f} {h.os:<6.2f}"
         )
     return "\n".join(lines)
 
@@ -524,28 +496,8 @@ def resolve_candidates(spec: str):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="2D Material Element Substitution Recommender",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
-    )
+        description="2D Material Element Substitution Recommender")
     ap.add_argument("poscar", help="POSCAR 文件路径")
-    g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--site", type=int, nargs="+",
-                   help="要替换的位点编号（从 1 开始）")
-    g.add_argument("--element", type=str,
-                   help="要替换的元素符号")
-
-    ap.add_argument("--candidates", default="",
-                    help="候选列表：逗号分隔 或 内置组名 "
-                         f"({', '.join(GROUPS)})")
-    ap.add_argument("--exclude", default="",
-                    help="排除的元素（逗号分隔）")
-    ap.add_argument("--ox-state", type=int,
-                    help="目标氧化态（推荐指定）")
-    ap.add_argument("--weights", type=float, nargs=6,
-                    default=DEFAULT_WEIGHTS,
-                    help="权重：几何 电子 半径 电负 氧化 趋势 "
-                         f"(默认: {' '.join(map(str, DEFAULT_WEIGHTS))})")
     ap.add_argument("--top", type=int, default=15,
                     help="显示前 N 个 (默认: 15)")
     ap.add_argument("--json",
@@ -562,55 +514,48 @@ def main():
         print(f"读取 POSCAR 失败: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # ── Determine site and host element ──
-    if args.site:
-        sites = [i - 1 for i in args.site]
-        for s in sites:
-            if not (0 <= s < len(struct)):
-                print(f"位点 {s+1} 超出范围 (1–{len(struct)})",
-                      file=sys.stderr)
-                sys.exit(1)
-        host_sym = list(struct[sites[0]].species.keys())[0].symbol
-    else:
-        host_sym = args.element.strip()
-        sites = [i for i, site in enumerate(struct)
-                 if any(sp.symbol == host_sym for sp in site.species)]
-        if not sites:
-            print(f"错误: POSCAR 中没有元素 {host_sym}", file=sys.stderr)
-            sys.exit(1)
+    # ── Show elements ──
+    elements = list(struct.composition.as_dict().keys())
+    comp = struct.composition
+    print()
+    print("=" * 60)
+    print(f"  文件: {args.poscar}")
+    print(f"  成分: {comp.reduced_formula}")
+    print(f"  原子: {', '.join(elements)}")
+    print(f"  数量: {dict(comp.element_composition)}")
+    print("=" * 60)
+    print()
+    host_sym = input("  输入要替换的原子: ").strip()
+    if not host_sym:
+        print("未输入原子", file=sys.stderr)
+        sys.exit(1)
+
+    # ── Find sites ──
+    sites = [i for i, site in enumerate(struct)
+             if any(sp.symbol == host_sym for sp in site.species)]
+    if not sites:
+        print(f"错误: POSCAR 中没有元素 {host_sym}", file=sys.stderr)
+        sys.exit(1)
 
     host_el = Element(host_sym)
 
     # ── Oxidation state ──
-    ox = args.ox_state or guess_oxidation(struct, sites[0])
+    ox = guess_oxidation(struct, sites[0])
 
-    # ── Candidates ──
-    if args.candidates:
-        cands = resolve_candidates(args.candidates)
-    else:
-        cands = auto_candidates(host_sym)
-        print(f"  (自动生成了 {len(cands)} 个候选，"
-              f"可用 --candidates 自定义)")
-
-    if args.exclude:
-        xs = set(s.strip() for s in args.exclude.split(","))
-        cands = [c for c in cands if c not in xs]
-    cands = [c for c in cands if c != host_sym]
+    # ── Auto candidates ──
+    cands = auto_candidates(host_sym)
 
     # ── Score ──
-    w = args.weights
+    w = DEFAULT_WEIGHTS
     hits, bond_info = recommend(struct, host_sym, ox, cands, w, sites)
 
     # ── Output ──
-    fmt = struct.composition.reduced_formula
     print()
-    print("=" * 70)
-    print(f"  元素替换推荐 — {host_sym} in {fmt}")
-    print("=" * 70)
-    print(f"  POSCAR     : {args.poscar}")
-    print(f"  替换元素   : {host_sym}")
-    print(f"  电子构型   : {host_el.block}-区 {host_el.group} 族")
-    print(f"  氧化态     : {ox or '自动检测失败(用 --ox-state 指定)'}")
+    print("=" * 60)
+    print(f"  替换 {host_sym} 的推荐候选")
+    print("=" * 60)
+    print(f"  电子构型: {host_el.block}-区 {host_el.group} 族"
+          f"  |  氧化态: {ox or '?'}")
     print()
     print(table(hits, args.top, bond_info))
     print()
@@ -618,9 +563,8 @@ def main():
     # ── JSON ──
     if args.json:
         meta = {
-            "poscar": args.poscar, "formula": fmt,
-            "host": host_sym, "block": host_el.block,
-            "group": host_el.group,
+            "poscar": args.poscar, "formula": comp.reduced_formula,
+            "host": host_sym,
             "oxidation": ox,
             "num_candidates": len(cands),
             "top_n": args.top,
@@ -630,7 +574,7 @@ def main():
         }
         with open(args.json, "w") as f:
             f.write(to_json(hits, meta, args.top))
-        print(f"  -> JSON 结果保存至 {args.json}")
+        print(f"  -> JSON 保存至 {args.json}")
         print()
 
 
