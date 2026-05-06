@@ -86,8 +86,50 @@ def _get_ionic_radius(el, ox, cn):
     return float(next(iter(radii.values())))
 
 
+def _charge_balance(composition):
+    """Try to assign oxidation states by charge balance.
+
+    Given a dict of {element_symbol: (count, [ox_states])}, find a
+    combination (one ox_state per element) that sums closest to zero.
+    Returns {element: assigned_ox_state} or None.
+    """
+    elements = list(composition.keys())
+    elements.sort(key=lambda el: len(composition[el][1]))
+
+    best = (None, float("inf"))
+
+    def _search(idx, assigned):
+        nonlocal best
+        if idx == len(elements):
+            err = abs(sum(assigned.values()))
+            if err < best[1]:
+                best = (dict(assigned), err)
+            return
+        el = elements[idx]
+        count, states = composition[el]
+        partial = sum(composition[e][0] * assigned[e] for e in assigned)
+        for ox in states:
+            candidate = partial + count * ox
+            if abs(candidate) > best[1]:
+                continue
+            assigned[el] = ox
+            _search(idx + 1, assigned)
+            del assigned[el]
+
+    _search(0, {})
+    return best[0]
+
+
 def guess_oxidation(structure, site_idx):
+    """Determine the likely oxidation state for the atom at site_idx.
+
+    Priority:
+      1. pymatgen's add_oxidation_state_by_guess() (charge-balanced)
+      2. Charge-balance analysis using composition + common_oxidation_states
+      3. Fallback: common_oxidation_states[0] for the target element
+    """
     sp = list(structure[site_idx].species.keys())[0]
+    # Priority 1: pymatgen built-in
     try:
         s = structure.copy()
         s.add_oxidation_state_by_guess()
@@ -96,6 +138,22 @@ def guess_oxidation(structure, site_idx):
                 return int(p.oxi_state)
     except Exception:
         pass
+    # Priority 2: charge balance from composition
+    try:
+        comp = structure.composition
+        elem_data = {}
+        for el, amt in comp.items():
+            sym = el.symbol if hasattr(el, "symbol") else str(el)
+            common = el.common_oxidation_states
+            if not common:
+                return Element(sp.symbol).common_oxidation_states[0]
+            elem_data[sym] = (int(amt), common)
+        balanced = _charge_balance(elem_data)
+        if balanced and sp.symbol in balanced:
+            return balanced[sp.symbol]
+    except Exception:
+        pass
+    # Priority 3: most common state for target element
     try:
         el = Element(sp.symbol)
         if el.common_oxidation_states:
