@@ -381,9 +381,19 @@ def guess_oxidation(structure, site_idx=None):
 
 
 def score_radius(host_el, cand_el, ox, cn):
-    """离子半径兼容性。"""
-    rh = _get_ionic_radius(host_el, ox, cn) or host_el.atomic_radius
-    rc = _get_ionic_radius(cand_el, ox, cn) or cand_el.atomic_radius
+    """离子半径兼容性。
+
+    保证比较在同一种半径类型上进行：
+      - 双方都有目标价态的离子半径 → 用离子半径比
+      - 任何一方缺失 → 都用共价半径比（避免 N³⁻ 1.32 vs P 原子 1.00 这种不一致）
+    """
+    rh_ion = _get_ionic_radius(host_el, ox, cn)
+    rc_ion = _get_ionic_radius(cand_el, ox, cn)
+    if rh_ion is not None and rc_ion is not None:
+        rh, rc = rh_ion, rc_ion
+    else:
+        rh = host_el.atomic_radius
+        rc = cand_el.atomic_radius
     if not rh or not rc or rh <= 0:
         return 0.50
     return exp(-2.0 * abs(rc - rh) / rh)
