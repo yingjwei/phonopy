@@ -400,22 +400,23 @@ def score_en(host_el, cand_el):
 def score_os(host_el, cand_el, target_ox):
     """氧化态兼容性（支持分数氧化态）。
 
-    按经验价态排序加权：pymatgen 的 common_oxidation_states
-    按出现频率排序，排第一的就是该元素最常取的价态。
-    如果 target_ox 匹配到第一经验价态 → 满分，越靠后分越低。
+    如果候选元素的任一经验价态接近目标价态 → 高分。
+    经验价态越常见（排越前）应得越高是错的，排后面的也是合理价态。
     """
     css = cand_el.common_oxidation_states
     if not css:
         return 0.30
     if target_ox is not None:
-        for i, state in enumerate(css):
-            if abs(state - target_ox) < 0.5:
-                # 匹配到第 i+1 常见价态
-                return max(0.35, 1.0 - i * 0.15)
-        # 没有精确匹配，找最近的，按距离连续衰减
+        exact_match = any(abs(s - target_ox) < 0.5 for s in css)
+        if exact_match:
+            return 1.0
         closest = min(css, key=lambda s: abs(s - target_ox))
         diff = abs(closest - target_ox)
-        return max(0.15, 1.0 - diff * 0.3)
+        if diff <= 1.0:
+            return 0.85
+        if diff <= 2.0:
+            return 0.60
+        return 0.30
     return min(1.0, len(css) / 4.0)
 
 
@@ -925,6 +926,17 @@ def main():
         else:
             # 纯元素 → 全部替换（加权综合）
             args.element = el_only
+
+    # ── 交互式输入氧化态 ──
+    if args.element and args.ox_state is None:
+        try:
+            inp_ox = input("  氧化态 (直接回车=自动计算): ").strip()
+            if inp_ox:
+                args.ox_state = float(inp_ox)
+        except (EOFError, KeyboardInterrupt):
+            pass
+        except ValueError:
+            args.ox_state = None  # 非数值 → 自动计算
 
     # ── 确定替换位点 ──
     if args.site:
