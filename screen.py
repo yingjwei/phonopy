@@ -5,9 +5,13 @@
 输入 POSCAR 和要替换的元素，基于电子构型、半径、电负性、
 氧化态输出最适合替代该元素的候选方案及评分。
 
+自动按配位环境分组：同元素不同位点的近邻不同 → 有效氧化态不同
+→ 分别推荐替代元素。
+
 用法:
-  python screen.py POSCAR --element V        # 自动推荐 V 的替代元素
-  python screen.py POSCAR --element Cl       # 自动推荐 Cl 的替代元素
+  python screen.py POSCAR --element V        # 自动推荐 V 的替代元素（分环境）
+  python screen.py POSCAR --element Cl       # 自动推荐 Cl 的替代元素（分环境）
+  python screen.py POSCAR --site 1 3 5       # 按位点编号（传统模式）
   python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr   # 指定候选
   python screen.py POSCAR --element V --ox-state 4 --top 10        # 指定氧化态
   python screen.py POSCAR --element V --output-dir ./candidates    # 输出 POSCAR
@@ -72,6 +76,15 @@ GROUPS = {
 # electronic = d电子数/价电子构型 权重最高
 DEFAULT_WEIGHTS = [0.20, 0.15, 0.10, 0.10, 0.45]
 
+# 强阴性元素固定价态（用于电荷平衡）
+ANION_FIXED = {
+    "F": -1, "Cl": -1, "Br": -1, "I": -1,
+    "O": -2, "S": -2, "Se": -2, "Te": -2,
+    "N": -3, "P": -3, "As": -3,
+}
+
+NEIGHBOR_CUTOFF = 3.5  # Å
+
 
 # ═══════════════════════════════════════════════════════════════
 #  Scoring — 五项评分
@@ -81,83 +94,90 @@ def _get_ionic_radius(el, ox, cn):
     radii = el.ionic_radii
     if not radii:
         return None
-    if ox is not None and ox in radii:
-        return float(radii[ox])
+    if ox is not None:
+        # Exact match
+        if ox in radii:
+            return float(radii[ox])
+        # Fractional: interpolate between nearest integer states
+        int_ox = [int(k) for k in radii.keys()]
+        if int_ox and min(int_ox) <= ox <= max(int_ox):
+            below = max(k for k in int_ox if k <= ox)
+            above = min(k for k in int_ox if k >= ox)
+            if below == above:
+                return float(radii[str(below)] if isinstance(list(radii.keys())[0], str) else radii[below])
+            r_below = float(radii[str(below)] if isinstance(list(radii.keys())[0], str) else radii[below])
+            r_above = float(radii[str(above)] if isinstance(list(radii.keys())[0], str) else radii[above])
+            t = (ox - below) / (above - below)
+            return r_below + t * (r_above - r_below)
+        return float(next(iter(radii.values())))
     return float(next(iter(radii.values())))
 
 
-def _charge_balance(composition):
-    """Try to assign oxidation states by charge balance.
+def _fractional_charge_balance(composition, target_sym):
+    """Solve for target element's fractional oxidation state by charge balance.
 
-    Given a dict of {element_symbol: (count, [ox_states])}, find a
-    combination (one ox_state per element) that sums closest to zero.
-    Returns {element: assigned_ox_state} or None.
+    composition: dict {sym: count} — full composition
+    target_sym: the element to solve for
+
+    Fixed: anions (O=-2, N=-3, halogens=-1), non-target cations use common_ox_states[0].
+    Returns: float — the target's effective oxidation state (fractional if needed).
     """
-    elements = list(composition.keys())
-    elements.sort(key=lambda el: len(composition[el][1]))
-
-    best = (None, float("inf"))
-
-    def _search(idx, assigned):
-        nonlocal best
-        if idx == len(elements):
-            err = abs(sum(assigned.values()))
-            if err < best[1]:
-                best = (dict(assigned), err)
-            return
-        el = elements[idx]
-        count, states = composition[el]
-        partial = sum(composition[e][0] * assigned[e] for e in assigned)
-        for ox in states:
-            candidate = partial + count * ox
-            if abs(candidate) > best[1]:
-                continue
-            assigned[el] = ox
-            _search(idx + 1, assigned)
-            del assigned[el]
-
-    _search(0, {})
-    return best[0]
+    total_charge = 0.0
+    for sym, count in composition.items():
+        if sym == target_sym:
+            continue
+        if sym in ANION_FIXED:
+            ox = ANION_FIXED[sym]
+        else:
+            el = Element(sym)
+            ox = el.common_oxidation_states[0] if el.common_oxidation_states else 0
+        total_charge += count * ox
+    # Solve: total_charge + count * x = 0
+    target_count = composition[target_sym]
+    x = -total_charge / target_count
+    return round(x, 2)
 
 
-def guess_oxidation(structure, site_idx):
-    """Determine the likely oxidation state for the atom at site_idx.
+def guess_oxidation(structure, site_idx=None):
+    """Determine likely oxidation state, supporting fractional values.
 
     Priority:
-      1. pymatgen's add_oxidation_state_by_guess() (charge-balanced)
-      2. Charge-balance analysis using composition + common_oxidation_states
-      3. Fallback: common_oxidation_states[0] for the target element
+      1. pymatgen's add_oxidation_state_by_guess()
+      2. Fractional charge balance from full composition
+      3. common_oxidation_states[0] fallback
     """
-    sp = list(structure[site_idx].species.keys())[0]
-    # Priority 1: pymatgen built-in
-    try:
-        s = structure.copy()
-        s.add_oxidation_state_by_guess()
-        for p, amt in s[site_idx].species.items():
-            if p.symbol == sp.symbol:
-                return int(p.oxi_state)
-    except Exception:
-        pass
-    # Priority 2: charge balance from composition
+    sp_sym = None
+    # Try single site approach (priority 1)
+    if site_idx is not None:
+        sp_sym = list(structure[site_idx].species.keys())[0].symbol
+        try:
+            s = structure.copy()
+            s.add_oxidation_state_by_guess()
+            for p in s[site_idx].species:
+                if p.symbol == sp_sym:
+                    return float(p.oxi_state)
+        except Exception:
+            pass
+
+    if sp_sym is None:
+        sp_sym = list(structure[0].species.keys())[0].symbol
+
+    # Priority 2: fractional charge balance
     try:
         comp = structure.composition
-        elem_data = {}
+        comp_dict = {}
         for el, amt in comp.items():
             sym = el.symbol if hasattr(el, "symbol") else str(el)
-            common = el.common_oxidation_states
-            if not common:
-                return Element(sp.symbol).common_oxidation_states[0]
-            elem_data[sym] = (int(amt), common)
-        balanced = _charge_balance(elem_data)
-        if balanced and sp.symbol in balanced:
-            return balanced[sp.symbol]
+            comp_dict[sym] = int(amt)
+        return _fractional_charge_balance(comp_dict, sp_sym)
     except Exception:
         pass
-    # Priority 3: most common state for target element
+
+    # Priority 3: most common state
     try:
-        el = Element(sp.symbol)
+        el = Element(sp_sym)
         if el.common_oxidation_states:
-            return el.common_oxidation_states[0]
+            return float(el.common_oxidation_states[0])
     except Exception:
         pass
     return None
@@ -181,18 +201,20 @@ def score_en(host_el, cand_el):
 
 
 def score_os(host_el, cand_el, target_ox):
-    """氧化态兼容性。"""
+    """氧化态兼容性（支持分数氧化态）。"""
     css = cand_el.common_oxidation_states
     if not css:
         return 0.30
     if target_ox is not None:
-        if target_ox in css:
+        # Find closest common oxidation state
+        closest = min(css, key=lambda s: abs(s - target_ox))
+        diff = abs(closest - target_ox)
+        if diff <= 0.5:
             return 1.0
-        for s in css:
-            if abs(s - target_ox) <= 1:
-                return 0.8
-            if abs(s - target_ox) <= 2:
-                return 0.5
+        if diff <= 1.5:
+            return 0.8
+        if diff <= 2.5:
+            return 0.5
         return 0.20
     return min(1.0, len(css) / 4.0)
 
@@ -406,7 +428,94 @@ def auto_candidates(host_sym):
 
 
 # ═══════════════════════════════════════════════════════════════
-#  I/O
+#  Site classification by coordination environment
+# ═══════════════════════════════════════════════════════════════
+
+@dataclass
+class SiteGroup:
+    label: str
+    sites: List[int]
+    neighbor_counts: dict
+    avg_ox: float
+    avg_cn: float
+
+
+def _signature(neighbor_counts):
+    """Create a canonical label from neighbor counts, e.g. 'V1W3'."""
+    keys = sorted(neighbor_counts.keys())
+    return "".join(f"{k}{neighbor_counts[k]}" for k in keys)
+
+
+def classify_sites(struct, element_sym, cutoff=NEIGHBOR_CUTOFF):
+    """Group sites of element_sym by their nearest-neighbor coordination.
+
+    Returns list of SiteGroup objects, one per distinct environment.
+    """
+    from itertools import product
+
+    sites_of_el = [i for i, site in enumerate(struct)
+                   if any(sp.symbol == element_sym for sp in site.species)]
+    if not sites_of_el:
+        return []
+
+    # Pre-compute Cartesian coordinates + lattice for PBC
+    lattice = struct.lattice.matrix
+    frac_all = [site.frac_coords for site in struct]
+    cart_all = [site.coords for site in struct]
+    symbols_all = [list(site.species.keys())[0].symbol for site in struct]
+
+    groups = {}  # signature -> {"indices": [], "ncounts": {}}
+    for idx in sites_of_el:
+        pos = cart_all[idx]
+        counts = {}
+        for j, pos_j in enumerate(cart_all):
+            if j == idx:
+                continue
+            frac_d = [frac_all[j][k] - frac_all[idx][k] for k in range(3)]
+            frac_d = [f - round(f) for f in frac_d]
+            cart_d = [sum(frac_d[k] * lattice[k][i] for k in range(3)) for i in range(3)]
+            dist = sum(d * d for d in cart_d) ** 0.5
+            if dist < cutoff:
+                sym = symbols_all[j]
+                counts[sym] = counts.get(sym, 0) + 1
+
+        sig = _signature(counts)
+        if sig not in groups:
+            groups[sig] = {"indices": [], "ncounts": counts}
+        groups[sig]["indices"].append(idx)
+
+    result = []
+    for sig, data in groups.items():
+        # Compute average coordination number
+        total_n = sum(data["ncounts"].values())
+        avg_cn = total_n / len(data["indices"]) if data["indices"] else total_n
+
+        # Compute oxidation state via local charge balance
+        neighbor_total = sum(count * _local_ox(sym) for sym, count in data["ncounts"].items())
+        avg_ox_n = -neighbor_total  # each target atom balances its local neighbors
+
+        result.append(SiteGroup(
+            label=f"{element_sym}{sig}",
+            sites=data["indices"],
+            neighbor_counts=data["ncounts"],
+            avg_ox=round(avg_ox_n, 2),
+            avg_cn=round(avg_cn, 1),
+        ))
+
+    return result
+
+
+def _local_ox(sym):
+    """Default oxidation for a neighbor element in local charge balance."""
+    if sym in ANION_FIXED:
+        return ANION_FIXED[sym]
+    try:
+        el = Element(sym)
+        if el.common_oxidation_states:
+            return el.common_oxidation_states[0]
+        return 0
+    except Exception:
+        return 0
 # ═══════════════════════════════════════════════════════════════
 
 def write_poscars(structure, site_indices, hits, top_n, out_dir, host_sym):
@@ -427,22 +536,21 @@ def write_poscars(structure, site_indices, hits, top_n, out_dir, host_sym):
 #  Formatting
 # ═══════════════════════════════════════════════════════════════
 
-def table(hits, top_n):
+def table(hits, top_n, header_prefix=""):
     """显示格式化的结果表格。"""
     SEP = "-" * 95
-
-    # 表头解释
-    header_info = (
+    lines = []
+    if header_prefix:
+        lines.append(header_prefix)
+    lines.append(
         "  解释: 总分=电子×0.45 + 半径×0.20 + 电负性×0.15 + 氧化态×0.10 + 周期×0.10\n"
-        "  电子: 同族同区块最高 → d电子数/价电子构型匹配度\n"
         "  注意: 电子分高 ≠ 声子稳定，需 DFT 验证"
     )
-
+    lines.append("")
     fmt = (
         "{rank:<4} {el:<7} {total:<7} {ec:<7} {r:<7} {en:<7} {os:<6} "
         "{cgroup:<6} {cblock:<6} note"
     )
-    lines = [header_info, ""]
     lines.append(fmt.format(
         rank="Rank", el="元素", total="总分", ec="电子",
         r="半径", en="电负", os="氧化", cgroup="族", cblock="区块"
@@ -501,7 +609,7 @@ def main():
                          f"({', '.join(GROUPS)})")
     ap.add_argument("--exclude", default="",
                     help="排除的元素（逗号分隔）")
-    ap.add_argument("--ox-state", type=int,
+    ap.add_argument("--ox-state", type=float,
                     help="目标氧化态（推荐指定，提高准确性）")
     ap.add_argument("--coord", type=int,
                     help="配位数（默认 auto: d区/p区=6, s区=8, f区=8）")
@@ -527,89 +635,166 @@ def main():
         print(f"读取 POSCAR 失败: {e}", file=sys.stderr)
         sys.exit(1)
 
+    fmt = struct.composition.reduced_formula
+
     # ── 确定替换位点 ──
     if args.site:
+        # 按位点：传统模式，单组
         sites = [i - 1 for i in args.site]
         for s in sites:
             if not (0 <= s < len(struct)):
                 print(f"位点 {s+1} 超出范围 (1–{len(struct)})", file=sys.stderr)
                 sys.exit(1)
         host_sym = list(struct[sites[0]].species.keys())[0].symbol
+        host_el = Element(host_sym)
+
+        ox = args.ox_state or guess_oxidation(struct, sites[0])
+        cn = args.coord or block_cn(host_el.block)
+
+        if args.candidates:
+            cands = resolve_candidates(args.candidates)
+        else:
+            cands = auto_candidates(host_sym)
+            print(f"  (自动生成了 {len(cands)} 个候选)")
+            print()
+        if args.exclude:
+            xs = set(s.strip() for s in args.exclude.split(","))
+            cands = [c for c in cands if c not in xs]
+        cands = [c for c in cands if c != host_sym]
+
+        w = args.weights
+        hits = screen(struct, sites[0], host_sym, ox, cands, w, cn)
+
+        print()
+        print("=" * 65)
+        print(f"  元素替换推荐 — {host_sym} in {fmt}")
+        print("=" * 65)
+        print(f"  POSCAR   : {args.poscar}")
+        print(f"  位点     : {[s+1 for s in sites]}")
+        print(f"  替换     : {host_sym}")
+        print(f"  电子构型 : {host_el.block}-区 {host_el.group} 族")
+        print(f"  氧化态   : {ox or '自动检测失败(用 --ox-state 指定)'}")
+        print(f"  配位数   : {cn}")
+        print()
+        print(table(hits, args.top))
+        print()
+
+        if args.output_dir:
+            paths = write_poscars(struct, sites, hits, args.top,
+                                  args.output_dir, host_sym)
+            print(f"  -> {len(paths)} 个 POSCAR 文件写入 {args.output_dir}/")
+            for p in paths:
+                print(f"    {p}")
+            print()
+
+        if args.json:
+            meta = {
+                "poscar": args.poscar, "formula": fmt,
+                "host": host_sym, "block": host_el.block,
+                "group": host_el.group,
+                "oxidation": ox, "coord": cn,
+                "num_candidates": len(cands),
+                "top_n": args.top,
+                "weights": dict(zip(
+                    ["radius","en","os","struct","electronic"], w)),
+            }
+            with open(args.json, "w") as f:
+                f.write(to_json(hits, meta, args.top))
+            print(f"  -> JSON 结果保存至 {args.json}")
+            print()
+
     else:
+        # ── 按元素：按配位环境分组 ──
         host_sym = args.element.strip()
-        sites = [i for i, site in enumerate(struct)
-                 if any(sp.symbol == host_sym for sp in site.species)]
-        if not sites:
+        host_el = Element(host_sym)
+
+        groups = classify_sites(struct, host_sym)
+        if not groups:
             print(f"错误: POSCAR 中没有元素 {host_sym}", file=sys.stderr)
             sys.exit(1)
 
-    host_el = Element(host_sym)
-
-    # ── 氧化态 ──
-    ox = args.ox_state or guess_oxidation(struct, sites[0])
-
-    # ── 配位数 ──
-    cn = args.coord or block_cn(host_el.block)
-
-    # ── 候选列表 ──
-    if args.candidates:
-        cands = resolve_candidates(args.candidates)
-    else:
-        cands = auto_candidates(host_sym)
-        print(f"  (自动生成了 {len(cands)} 个候选，"
-              f"可用 --candidates 自定义)")
+        print()
+        print("=" * 55)
+        print(f"  元素替换推荐 — {host_sym} in {fmt}")
+        print("=" * 55)
+        print(f"  检测到 {len(groups)} 种配位环境:")
+        for g in groups:
+            print(f"    {g.label}: {len(g.sites)} 个位点, "
+                  f"配位 {dict(g.neighbor_counts)}, "
+                  f"有效氧化态 {g.avg_ox:.2f}, 平均配位数 {g.avg_cn}")
         print()
 
-    if args.exclude:
-        xs = set(s.strip() for s in args.exclude.split(","))
-        cands = [c for c in cands if c not in xs]
-    cands = [c for c in cands if c != host_sym]
+        # 候选列表（所有环境共用）
+        if args.candidates:
+            cands = resolve_candidates(args.candidates)
+        else:
+            cands = auto_candidates(host_sym)
+            print(f"  (自动生成了 {len(cands)} 个候选)")
+            print()
+        if args.exclude:
+            xs = set(s.strip() for s in args.exclude.split(","))
+            cands = [c for c in cands if c not in xs]
+        cands = [c for c in cands if c != host_sym]
 
-    # ── 评分 ──
-    w = args.weights
-    hits = screen(struct, sites[0], host_sym, ox, cands, w, cn)
+        w = args.weights
+        all_hits = {}
+        for g in groups:
+            ox = args.ox_state or g.avg_ox
+            cn = args.coord or g.avg_cn or block_cn(host_el.block)
+            hits = screen(struct, g.sites[0], host_sym, ox, cands, w, cn)
+            all_hits[g.label] = (hits, ox, cn)
 
-    # ── 输出 ──
-    fmt = struct.composition.reduced_formula
-    print()
-    print("=" * 65)
-    print(f"  元素替换推荐 — {host_sym} in {fmt}")
-    print("=" * 65)
-    print(f"  POSCAR   : {args.poscar}")
-    print(f"  位点     : {[s+1 for s in sites]}")
-    print(f"  替换     : {host_sym}")
-    print(f"  电子构型 : {host_el.block}-区 {host_el.group} 族")
-    print(f"  氧化态   : {ox or '自动检测失败(用 --ox-state 指定)'}")
-    print(f"  配位数   : {cn}")
-    print()
-    print(table(hits, args.top))
-    print()
+        # ── 输出：每个环境单独表格 ──
+        for g in groups:
+            hits_g, ox_g, cn_g = all_hits[g.label]
+            site_list = [s + 1 for s in g.sites]
+            prefix = (
+                f"  ── 环境: {g.label}  (位点 {site_list}) ──\n"
+                f"  配位: {dict(g.neighbor_counts)}  "
+                f"氧化态: {ox_g:.2f}  配位数: {cn_g}"
+            )
+            print(table(hits_g, args.top, prefix))
+            print()
+            print()
 
-    # ── 输出 POSCAR ──
-    if args.output_dir:
-        paths = write_poscars(struct, sites, hits, args.top,
-                              args.output_dir, host_sym)
-        print(f"  -> {len(paths)} 个 POSCAR 文件写入 {args.output_dir}/")
-        for p in paths:
-            print(f"    {p}")
-        print()
+        # ── 输出 POSCAR ──
+        if args.output_dir:
+            for g in groups:
+                hits_g = all_hits[g.label][0]
+                paths = write_poscars(struct, g.sites, hits_g, args.top,
+                                      os.path.join(args.output_dir, g.label), host_sym)
+                print(f"  -> {len(paths)} 个 POSCAR 文件写入 {args.output_dir}/{g.label}/")
+                for p in paths:
+                    print(f"    {p}")
+                print()
 
-    # ── JSON ──
-    if args.json:
-        meta = {
-            "poscar": args.poscar, "formula": fmt,
-            "host": host_sym, "block": host_el.block,
-            "group": host_el.group,
-            "oxidation": ox, "coord": cn,
-            "num_candidates": len(cands),
-            "top_n": args.top,
-            "weights": dict(zip(
-                ["radius","en","os","struct","electronic"], w)),
-        }
-        with open(args.json, "w") as f:
-            f.write(to_json(hits, meta, args.top))
-        print(f"  -> JSON 结果保存至 {args.json}")
-        print()
+        # ── JSON ──
+        if args.json:
+            combined = {
+                "poscar": args.poscar, "formula": fmt,
+                "host": host_sym, "block": host_el.block,
+                "group": host_el.group,
+                "num_candidates": len(cands),
+                "top_n": args.top,
+                "weights": dict(zip(
+                    ["radius","en","os","struct","electronic"], w)),
+                "environments": [],
+            }
+            for g in groups:
+                hits_g, ox_g, cn_g = all_hits[g.label]
+                combined["environments"].append({
+                    "label": g.label,
+                    "sites": [s + 1 for s in g.sites],
+                    "neighbor_counts": g.neighbor_counts,
+                    "oxidation": ox_g,
+                    "coordination": cn_g,
+                    "hits": [{"rank": i + 1, **h.as_dict}
+                             for i, h in enumerate(hits_g[:args.top])],
+                })
+            with open(args.json, "w") as f:
+                json.dump(combined, f, indent=2, ensure_ascii=False)
+            print(f"  -> JSON 结果保存至 {args.json}")
+            print()
 
 
 if __name__ == "__main__":

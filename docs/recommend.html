@@ -289,21 +289,20 @@ pip install pymatgen</code></pre>
 
 <div class="card-grid">
   <div class="card">
-    <h4>按元素替换</h4>
-    <p>指定被替换的元素符号，自动找出该元素的所有位点并生成候选列表。</p>
-    <pre><code>python screen.py POSCAR --element V</code></pre>
+    <h4>按元素替换（分环境）</h4>
+    <p>自动按配位环境分组，每个环境单独计算有效氧化态并推荐。</p>
+    <pre><code>python screen.py POSCAR --element N</code></pre>
+  </div>
+  <div class="card">
+    <h4>按位点替换（传统模式）</h4>
+    <p>精确指定位点编号，跳过环境分组。</p>
+    <pre><code>python screen.py POSCAR --site 1 3 5</code></pre>
   </div>
   <div class="card">
     <h4>手动指定候选</h4>
     <p>缩小候选范围，只考虑特定元素。</p>
     <pre><code>python screen.py POSCAR --element V \
   --candidates Nb,Ta,Mo,W,Cr</code></pre>
-  </div>
-  <div class="card">
-    <h4>指定氧化态</h4>
-    <p>显式指定氧化态，提高评分准确性。</p>
-    <pre><code>python screen.py POSCAR --element V \
-  --ox-state 4</code></pre>
   </div>
   <div class="card">
     <h4>批量输出</h4>
@@ -384,8 +383,10 @@ pip install pymatgen</code></pre>
 </div>
 
 <div class="info-box">
-<strong>设计原则：</strong>电子构型权重最高（0.45），因为成键特性是决定结构稳定性的首要因素。
-相比之下，离子半径和电负性虽重要，但可以通过晶格弛豫部分缓解。
+<strong>氧化态自动检测：</strong>支持非整数有效氧化态。
+按配位环境分组后，对每组解局域电荷平衡方程 <code>Σ nᵢ·oxᵢ = 0</code>，
+阴离子固定价态（O=-2, N=-3, F/Cl/Br/I=-1），过渡金属取常见价态，
+目标元素的有效氧化态 = 分数值。也可用 <code>--ox-state</code> 手动指定。
 </div>
 </section>
 
