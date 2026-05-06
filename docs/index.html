@@ -293,11 +293,17 @@ footer {
 </div>
 
 <div class="note">
-<strong>氧化态自动检测规则：</strong>
-被替换元素若为 <strong>N、O、卤素 (F/Cl/Br/I)、氧族 (S/Se/Te)、Pn族 (P/As)</strong>，
-直接取固定值（N=-3, O=-2, 卤素=-1, 氧族=-2, P/As=-3），跳过电荷平衡求解，
-因为这些元素在固体中氧化态几乎不变。其他元素通过电荷平衡或
-pymatgen 的 oxidation state guesser 推断。可用 <code>--ox-state</code> 手动指定。
+<strong>氧化态：</strong>
+交互模式下会提示 <code>氧化态 (直接回车=自动计算):</code>，
+输入数值直接使用，回车则自动计算。
+自动规则：被替换元素若为 <strong>N、O、卤素、氧族、Pn族</strong>
+取固定值（N=-3, O=-2, 卤素=-1, 氧族=-2, P/As=-3），其余通过电荷平衡推断。
+</div>
+<div class="note warn">
+<strong>氧化态评分：</strong>检查候选元素的<strong>经验价态表</strong>
+（pymatgen common_oxidation_states）中有无接近目标价态的条目。
+有则高分，不因排位靠后而扣分——排后面的也是合理价态。
+</div>
 </div>
 
 <h3>快速使用</h3>
