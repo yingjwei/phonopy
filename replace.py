@@ -562,22 +562,13 @@ def replace(structure, site_idx, host_sym, ox, candidates, weights, cn):
 def auto_candidates(host_sym):
     """
     智能生成候选替换元素。
-    优先级：同族 > 同区块邻族 > 同行 > 常见替换对。
+    优先级：同族 > 同区块邻族 > 常见替换对。
     """
     host = Element(host_sym)
     hg = host.group
     hb = host.block
-    hr = host.row
     cands = []
     seen = {host_sym}
-
-    # 0. 总是包含稀土（如果 host 是稀土或过渡金属）
-    if hb == 'd':
-        lanthanides = GROUPS["lanthanide"]
-        for el in lanthanides:
-            if el not in seen:
-                cands.append(el)
-                seen.add(el)
 
     # 1. 同族（最重要）
     for el in ALL_EL:
@@ -600,17 +591,7 @@ def auto_candidates(host_sym):
             except:
                 pass
 
-    # 3. 同行
-    for el in ALL_EL:
-        if el not in seen:
-            try:
-                if Element(el).row == hr:
-                    cands.append(el)
-                    seen.add(el)
-            except:
-                pass
-
-    # 4. 补充常见替换元素
+    # 3. 补充常见替换元素
     common = {
         'transition': ['Ru','Os','Co','Ni','Pt','Pd','Au'],
         'main': ['Al','Ga','In','Si','Ge','Sn'],
