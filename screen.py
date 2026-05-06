@@ -22,15 +22,207 @@ import json
 import os
 import sys
 from math import exp
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import List, Optional
 
+import numpy as np
+
+# ── Dual-channel: pymatgen or local fallback ──
+_HAS_PYMATGEN = False
 try:
     from pymatgen.core import Element, Structure
     from pymatgen.io.vasp import Poscar
-except ImportError:
-    print("Need pymatgen: pip install pymatgen", file=sys.stderr)
-    sys.exit(1)
+    _HAS_PYMATGEN = True
+except Exception:
+    try:
+        from element_data import ELEMENT_DATA
+    except ImportError:
+        print("需要 pymatgen 或 element_data.py", file=sys.stderr)
+        sys.exit(1)
+
+    class Element:
+        """Minimal Element class backed by embedded data."""
+        __slots__ = ('_s', '_d')
+        def __init__(self, symbol):
+            d = ELEMENT_DATA.get(symbol)
+            if d is None:
+                raise ValueError(f"Unknown element: {symbol}")
+            self._s = symbol
+            self._d = d
+        @property
+        def symbol(self): return self._s
+        @property
+        def atomic_radius(self): return self._d['atomic_radius']
+        @property
+        def X(self): return self._d['X']
+        @property
+        def group(self): return self._d['group']
+        @property
+        def block(self): return self._d['block']
+        @property
+        def row(self): return self._d['row']
+        @property
+        def common_oxidation_states(self): return self._d['common_oxidation_states']
+        @property
+        def ionic_radii(self): return self._d['ionic_radii']
+
+    class SimpleStructure:
+        """Pure-Python structure with POSCAR I/O and neighbor analysis."""
+
+        class _Lattice:
+            def __init__(self, matrix):
+                self._matrix = np.array(matrix, dtype=float)
+                self.a = float(np.linalg.norm(self._matrix[0]))
+                self.b = float(np.linalg.norm(self._matrix[1]))
+                self.c = float(np.linalg.norm(self._matrix[2]))
+            @property
+            def matrix(self): return self._matrix
+
+        class _Site:
+            def __init__(self, symbol, cart_coord, frac_coord):
+                self.species = {Element(symbol): 1.0}
+                self.coords = cart_coord
+                self.frac_coords = frac_coord
+
+        class _Composition:
+            def __init__(self, species_list):
+                from collections import Counter
+                self._cnt = Counter(species_list)
+            def __getitem__(self, sym): return self._cnt.get(sym, 0)
+            def items(self): return self._cnt.items()
+            def as_dict(self): return dict(self._cnt)
+
+            @property
+            def reduced_formula(self):
+                els = sorted(self._cnt.keys())
+                return "".join(f"{e}{c}" if c > 1 else e for e, c in zip(els, [self._cnt[e] for e in els]))
+
+        def __init__(self, lattice, species, frac_coords):
+            self._lattice = np.array(lattice, dtype=float)
+            self._species = list(species)
+            self._frac = np.array(frac_coords, dtype=float) % 1.0
+            self._cart = self._frac @ self._lattice
+            self._n = len(self._species)
+
+        @property
+        def lattice(self): return self._Lattice(self._lattice)
+
+        @property
+        def composition(self): return self._Composition(self._species)
+
+        def __getitem__(self, idx):
+            return self._Site(self._species[idx], self._cart[idx], self._frac[idx])
+
+        def __len__(self): return self._n
+
+        def __iter__(self):
+            for i in range(self._n):
+                yield self[i]
+
+        def copy(self):
+            return SimpleStructure(self._lattice.copy(), self._species[:], self._frac.copy())
+
+        def __setitem__(self, idx, val):
+            """Set species at index idx. val should be {Element: 1.0}."""
+            if isinstance(val, dict):
+                self._species[idx] = list(val.keys())[0].symbol
+            else:
+                self._species[idx] = str(val)
+
+        @property
+        def sites(self):
+            return [self[i] for i in range(self._n)]
+
+        def get_neighbors(self, site, r):
+            q = site.frac_coords
+            neigh = []
+            for i in range(self._n):
+                d = self._frac[i] - q
+                d -= np.round(d)
+                dist = float(np.linalg.norm(d @ self._lattice))
+                if 0.01 < dist <= r:
+                    neigh.append(dist)
+            return neigh
+
+    # Alias SimpleStructure → Structure so rest of code works unchanged
+    Structure = SimpleStructure
+
+    def _parse_poscar_block(path):
+        """Read POSCAR into a dict compatible with Structure.from_file."""
+        with open(path) as f:
+            raw = f.readlines()
+        scale = float(raw[1].strip())
+        lat = np.array([list(map(float, raw[i].strip().split()[:3])) for i in range(2, 5)])
+        if scale < 0:
+            vol = abs(scale)
+            cur_vol = float(np.linalg.det(lat))
+            lat *= (vol / cur_vol) ** (1.0 / 3.0)
+        elif scale != 1.0:
+            lat *= scale
+
+        line6 = raw[5].strip().split()
+        line7 = raw[6].strip().split()
+        if line6[0].isdigit():
+            counts = list(map(int, line6))
+            symbols = [f"X{i+1}" for i in range(len(counts))]
+            coord_start = 6
+        else:
+            symbols = line6
+            counts = list(map(int, line7))
+            coord_start = 7
+
+        species = []
+        for sym, cnt in zip(symbols, counts):
+            species.extend([sym] * cnt)
+
+        # Skip Selective dynamics line if present
+        idx = coord_start
+        if raw[idx].strip().lower().startswith('s'):
+            idx += 1
+
+        coord_type = raw[idx].strip().lower()
+        idx += 1
+        n_atoms = len(species)
+        frac = np.zeros((n_atoms, 3))
+        for i in range(n_atoms):
+            parts = raw[idx + i].strip().split()
+            frac[i] = list(map(float, parts[:3]))
+        if coord_type in ('cartesian', 'cart'):
+            frac = np.linalg.solve(lat.T, frac.T).T % 1.0
+
+        return lat.tolist(), species, frac.tolist()
+
+    # Monkey-patch Structure.from_file
+    @staticmethod
+    def _structure_from_file(path):
+        lat, species, frac = _parse_poscar_block(path)
+        return SimpleStructure(lat, species, frac)
+
+    Structure.from_file = _structure_from_file
+
+    def _write_poscar(struct, path):
+        """Fallback POSCAR writer when pymatgen is unavailable."""
+        lat = struct._lattice
+        species = struct._species
+        frac = struct._frac
+        # Build unique species in order of first appearance
+        seen = []
+        for s in species:
+            if s not in seen:
+                seen.append(s)
+        counts = [species.count(s) for s in seen]
+        with open(path, "w") as f:
+            f.write("Generated by screen.py (fallback)\n")
+            f.write("1.0\n")
+            for row in lat:
+                f.write(f"  {row[0]:20.15f} {row[1]:20.15f} {row[2]:20.15f}\n")
+            f.write("  ".join(seen) + "\n")
+            f.write("  ".join(str(c) for c in counts) + "\n")
+            f.write("Direct\n")
+            for row in frac:
+                f.write(f"  {row[0]:20.15f} {row[1]:20.15f} {row[2]:20.15f}\n")
+
+    Poscar = None  # marker for write_poscars to use fallback
 
 # ═══════════════════════════════════════════════════════════════
 #  Constants
@@ -83,7 +275,7 @@ ANION_FIXED = {
     "N": -3, "P": -3, "As": -3,
 }
 
-NEIGHBOR_CUTOFF = 3.5  # Å
+NEIGHBOR_CUTOFF = 3.5
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -477,28 +669,37 @@ def classify_sites(struct, element_sym, cutoff=NEIGHBOR_CUTOFF):
             dist = sum(d * d for d in cart_d) ** 0.5
             if dist < cutoff:
                 sym = symbols_all[j]
+                # For signature, only count DIFFERENT element neighbors
+                # (we care about coordination by other elements)
                 counts[sym] = counts.get(sym, 0) + 1
+
+        # Remove the target element itself from neighbor counts
+        if element_sym in counts:
+            del counts[element_sym]
 
         sig = _signature(counts)
         if sig not in groups:
             groups[sig] = {"indices": [], "ncounts": counts}
         groups[sig]["indices"].append(idx)
 
+    # Global charge balance for the target element's oxidation state
+    comp_dict = {}
+    for el_sym, count in struct.composition.items():
+        s = el_sym if isinstance(el_sym, str) else str(el_sym)
+        comp_dict[s] = int(count)
+
+    global_ox = _fractional_charge_balance(comp_dict, element_sym)
+
     result = []
     for sig, data in groups.items():
-        # Compute average coordination number
-        total_n = sum(data["ncounts"].values())
-        avg_cn = total_n / len(data["indices"]) if data["indices"] else total_n
-
-        # Compute oxidation state via local charge balance
-        neighbor_total = sum(count * _local_ox(sym) for sym, count in data["ncounts"].items())
-        avg_ox_n = -neighbor_total  # each target atom balances its local neighbors
+        # Coordination number = total neighbor count for this environment
+        avg_cn = sum(data["ncounts"].values())
 
         result.append(SiteGroup(
-            label=f"{element_sym}{sig}",
+            label=f"{element_sym}@{sig}",
             sites=data["indices"],
             neighbor_counts=data["ncounts"],
-            avg_ox=round(avg_ox_n, 2),
+            avg_ox=global_ox,
             avg_cn=round(avg_cn, 1),
         ))
 
@@ -527,7 +728,10 @@ def write_poscars(structure, site_indices, hits, top_n, out_dir, host_sym):
             s[idx] = {Element(h.symbol): 1.0}
         fname = f"POSCAR_{host_sym}to{h.symbol}_r{i+1}_{h.total:.3f}"
         path = os.path.join(out_dir, fname)
-        Poscar(s).write_file(path)
+        if Poscar is not None:
+            Poscar(s).write_file(path)
+        else:
+            _write_poscar(s, path)
         paths.append(path)
     return paths
 
