@@ -746,11 +746,6 @@ def table(hits, top_n, header_prefix=""):
     lines = []
     if header_prefix:
         lines.append(header_prefix)
-    lines.append(
-        "  解释: 总分=电子×0.45 + 半径×0.20 + 电负性×0.15 + 氧化态×0.10 + 周期×0.10\n"
-        "  注意: 电子分高 ≠ 声子稳定，需 DFT 验证"
-    )
-    lines.append("")
     fmt = (
         "{rank:<4} {el:<7} {total:<7} {ec:<7} {r:<7} {en:<7} {os:<6} "
         "{cgroup:<6} {cblock:<6} note"
@@ -858,6 +853,17 @@ def main():
         print(f"  原子: {', '.join(all_eles)}")
         print(f"  数量: {comp_dict}")
         print("=" * 60)
+        print()
+
+        # 显示原子坐标（带标签）
+        print("  原子坐标 (Cartesian):")
+        counts = {}
+        for i, site in enumerate(struct):
+            sym = list(site.species.keys())[0].symbol
+            counts[sym] = counts.get(sym, 0) + 1
+            label = f"{sym}{counts[sym]}"
+            x, y, z = site.coords
+            print(f"    {label:<5} {x:>10.6f} {y:>10.6f} {z:>10.6f}")
         print()
 
         print("  配位环境分组:")
