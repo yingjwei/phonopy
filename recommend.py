@@ -24,7 +24,6 @@ import numpy as np
 
 try:
     from pymatgen.core import Element, Structure
-    from pymatgen.io.vasp import Poscar
 except ImportError:
     print("需要 pymatgen: pip install pymatgen", file=sys.stderr)
     sys.exit(1)
