@@ -544,7 +544,7 @@ def replace(structure, site_idx, host_sym, ox, candidates, weights, cn):
         # Generate smart note
         note_parts = []
         if ec > 0.80:
-            note_parts.append(f"同族({cand.group}族)")
+            note_parts.append(f"同族(第{cand.group}族)")
         elif ec > 0.50:
             note_parts.append(f"邻族")
         if rs > 0.80:
@@ -983,7 +983,7 @@ def main():
         print(f"  POSCAR   : {args.poscar}")
         print(f"  位点     : {[s+1 for s in sites]}")
         print(f"  替换     : {host_sym}")
-        print(f"  电子构型 : {host_el.block}-区 {host_el.group} 族")
+        print(f"  电子构型 : {host_el.block}-区 第{host_el.group}族")
         print(f"  氧化态   : {ox or '自动检测失败(用 --ox-state 指定)'}")
         print(f"  配位数   : {cn}")
         print()
