@@ -398,21 +398,24 @@ def score_en(host_el, cand_el):
 
 
 def score_os(host_el, cand_el, target_ox):
-    """氧化态兼容性（支持分数氧化态）。"""
+    """氧化态兼容性（支持分数氧化态）。
+
+    按经验价态排序加权：pymatgen 的 common_oxidation_states
+    按出现频率排序，排第一的就是该元素最常取的价态。
+    如果 target_ox 匹配到第一经验价态 → 满分，越靠后分越低。
+    """
     css = cand_el.common_oxidation_states
     if not css:
         return 0.30
     if target_ox is not None:
-        # Find closest common oxidation state
+        for i, state in enumerate(css):
+            if abs(state - target_ox) < 0.5:
+                # 匹配到第 i+1 常见价态
+                return max(0.35, 1.0 - i * 0.15)
+        # 没有精确匹配，找最近的，按距离连续衰减
         closest = min(css, key=lambda s: abs(s - target_ox))
         diff = abs(closest - target_ox)
-        if diff <= 0.5:
-            return 1.0
-        if diff <= 1.5:
-            return 0.8
-        if diff <= 2.5:
-            return 0.5
-        return 0.20
+        return max(0.15, 1.0 - diff * 0.3)
     return min(1.0, len(css) / 4.0)
 
 
