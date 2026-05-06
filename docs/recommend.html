@@ -408,11 +408,10 @@ pip install pymatgen</code></pre>
 <table>
   <tr><th>格式</th><th>示例</th><th>含义</th></tr>
   <tr><td><code>元素符号</code></td><td><code>N</code></td><td>替换该元素的所有原子，各环境分别推荐 + 加权综合排名</td></tr>
-  <tr><td><code>符号+序号</code></td><td><code>N1</code></td><td>替换该元素的第 1 个原子（按 POSCAR 顺序）</td></tr>
-  <tr><td><code>数字</code></td><td><code>3</code></td><td>替换位点 3（从 1 开始编号的传统模式）</td></tr>
+  <tr><td><code>符号+环境编号</code></td><td><code>N1</code></td><td>替换该元素的第 1 种配位环境下的全部 N 原子<br>（<em>不是</em>第 1 个 N 原子，是所有处于该环境的 N）</td></tr>
 </table>
 
-<p>自动根据输入决定替换模式，使用体验更流畅。</p>
+<p>输入后询问氧化态：回车自动计算，输入数字则直接使用。</p>
 </section>
 
 <!-- ==================== 配位环境分组 ==================== -->
