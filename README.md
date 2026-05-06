@@ -6,36 +6,40 @@
 
 ```
 element_screener/
-├── screen.py           # 启发式筛选器（本机运行，零计算成本）
+├── replace.py           # 启发式筛选器（本机运行，零计算成本）
 ├── server_pipeline.py  # 服务器流水线（VASP + phonopy 自动化）
 └── README.md           # 本文件
 ```
 
-## 方案 A: 启发式筛选 (screen.py)
+## 方案 A: 启发式筛选 (replace.py)
 
-基于离子半径、电负性、氧化态兼容性对候选替换元素评分排序。
+基于电子构型、离子半径、电负性、氧化态兼容性对候选替换元素评分排序。
+支持交互模式、按配位环境分组推荐、分数氧化态自动计算。
 
 ### 用法
 
 ```bash
-# 替换特定元素的所有位点
-python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr
+# 交互模式（推荐）：显示 POSCAR 信息 → 选择要替换的原子
+python replace.py POSCAR
+
+# 替换特定元素的所有位点（按配位环境分组推荐）
+python replace.py POSCAR --element V
 
 # 替换特定位点（1-indexed）
-python screen.py POSCAR --site 2 --candidates all
+python replace.py POSCAR --site 2 5
 
 # 使用内置分组
-python screen.py POSCAR --element S --candidates chalcogen
+python replace.py POSCAR --element S --candidates chalcogen
 
 # 指定氧化态（推荐，提高准确性）
-python screen.py POSCAR --element V --candidates all --ox-state 4
+python replace.py POSCAR --element V --ox-state 4
 
 # 输出候选 POSCAR 文件 + JSON 结果
-python screen.py POSCAR --element Cl --candidates F,Br,I --ox-state -1 \
+python replace.py POSCAR --element Cl --candidates F,Br,I --ox-state -1 \
     --output-dir ./candidates --json results.json
 
 # 排除特定元素、只看 Top 10
-python screen.py POSCAR --element V --candidates all --exclude Tc,W \
+python replace.py POSCAR --element V --candidates all --exclude Tc,W \
     --ox-state 4 --top 10
 ```
 
@@ -56,17 +60,18 @@ python screen.py POSCAR --element V --candidates all --exclude Tc,W \
 
 ### 评分维度
 
-总分 = w₁×半径 + w₂×电负性 + w₃×氧化态 + w₄×结构
+总分 = 电子构型×0.45 + 离子半径×0.20 + 电负性×0.15 + 氧化态×0.10 + 周期邻近×0.10
 
-默认权重: `[0.4, 0.3, 0.2, 0.1]`
+默认权重: `[0.20 0.15 0.10 0.10 0.45]` (顺序: 半径, 电负性, 氧化态, 周期, 电子)
 
-可通过 `--weights 0.3 0.3 0.3 0.1` 自定义。
+可通过 `--weights 0.25 0.15 0.10 0.05 0.45` 自定义。
 
 评分说明（每个维度 0-1，越高越好）：
-- **半径**: 离子半径越接近 → 分数越高。使用 Shannon 半径，缺省时回退到原子半径
-- **电负性**: Pauling 电负性差异越小 → 分数越高
-- **氧化态**: 与目标氧化态匹配（相同=1.0，±1以内=0.8，±2=0.5）
-- **结构**: 周期表位置越近（同族>同行>邻近）→ 分数越高
+- **电子构型 (0.45)**: **最重要。** 同族最高分，同区块次之。电子排布决定成键特性
+- **离子半径 (0.20)**: Shannon 半径越接近 → 分数越高。支持分数氧化态插值
+- **电负性 (0.15)**: Pauling 电负性差异越小 → 分数越高
+- **氧化态 (0.10)**: 候选元素是否存在目标氧化态。支持分数氧化态最近整数匹配
+- **周期邻近 (0.10)**: 周期表位置越近（同族>同区块>邻族>同行）→ 分数越高
 
 ### 重要限制
 
@@ -101,7 +106,7 @@ python screen.py POSCAR --element V --candidates all --exclude Tc,W \
 
 ```bash
 # ===== 第一步：本机启发式筛选 =====
-python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W \
+python replace.py POSCAR --element V --candidates Nb,Ta,Mo,W \
     --ox-state 4 --output-dir ./candidates
 
 # ===== 第二步：生成候选的 VASP 作业 =====
@@ -180,7 +185,7 @@ python server_pipeline.py bulk POSCAR \
                 └──────┬──────┘
                        ↓
                 ┌─────────────┐
-                │启发式筛选(screen.py)│
+                │启发式筛选(replace.py)│
                 │  筛掉明显不合适   │
                 └──────┬──────┘
                        ↓
@@ -210,7 +215,7 @@ python server_pipeline.py bulk POSCAR \
 ## 依赖
 
 ```bash
-pip install pymatgen
+pip install pymatgen   # 可选。不安装则使用内置 element_data.py 降级运行
 ```
 
 服务器端还需要: VASP, phonopy。

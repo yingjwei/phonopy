@@ -3,308 +3,690 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>2D 材料元素替换推荐引擎 — 使用说明书</title>
+<title>元素替换声子稳定性预筛选工具 — 使用说明书</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --fg: #c9d1d9;
-    --accent: #58a6ff;
-    --green: #3fb950;
-    --red: #f85149;
-    --orange: #d29922;
-    --border: #30363d;
-    --code-bg: #161b22;
-    --card-bg: #161b22;
+    --bg: #f8f9fa;
+    --fg: #1a1a2e;
+    --accent: #4361ee;
+    --accent2: #3a0ca3;
+    --code-bg: #1e1e2e;
+    --code-fg: #cdd6f4;
+    --border: #dee2e6;
+    --card: #ffffff;
+    --success: #2ecc71;
+    --warn: #f39c12;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Noto Sans SC, Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
     background: var(--bg);
     color: var(--fg);
     line-height: 1.7;
-    padding: 0;
   }
-  .container { max-width: 880px; margin: 0 auto; padding: 40px 20px; }
-  h1 { font-size: 2em; font-weight: 600; margin-bottom: 8px; color: #f0f6fc; }
-  .subtitle { color: #8b949e; font-size: 1.05em; margin-bottom: 32px; }
-  .badge {
-    display: inline-block; padding: 3px 10px; border-radius: 12px;
-    font-size: 0.8em; font-weight: 500; margin-right: 6px;
+
+  header {
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    color: #fff;
+    padding: 3rem 1rem;
+    text-align: center;
   }
-  .badge-green { background: #1b3a2a; color: var(--green); }
-  .badge-blue  { background: #0c2d4a; color: var(--accent); }
+  header h1 { font-size: 2.5rem; margin-bottom: .5rem; letter-spacing: 1px; }
+  header p { font-size: 1.1rem; opacity: .9; max-width: 640px; margin: 0 auto; }
+  header .badge {
+    display: inline-block;
+    background: rgba(255,255,255,.15);
+    padding: .25rem 1rem;
+    border-radius: 20px;
+    font-size: .85rem;
+    margin: .5rem .25rem 0;
+  }
+
+  nav {
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  nav ul {
+    list-style: none;
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    padding: .75rem 1rem;
+    flex-wrap: wrap;
+  }
+  nav a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: .95rem;
+  }
+  nav a:hover { text-decoration: underline; }
+
+  main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
+  section { margin-bottom: 3rem; }
+
   h2 {
-    font-size: 1.4em; font-weight: 600; margin: 40px 0 16px;
-    padding-bottom: 8px; border-bottom: 1px solid var(--border); color: #f0f6fc;
+    font-size: 1.6rem;
+    color: var(--accent2);
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: .4rem;
+    margin-bottom: 1.2rem;
   }
-  h3 { font-size: 1.1em; font-weight: 600; margin: 24px 0 12px; color: #f0f6fc; }
-  p { margin: 12px 0; }
-  ul, ol { margin: 8px 0 8px 24px; }
-  li { margin: 4px 0; }
+  h3 {
+    font-size: 1.2rem;
+    color: var(--fg);
+    margin: 1.5rem 0 .8rem;
+  }
+
+  p, li { color: #444; }
+  ul, ol { padding-left: 1.5rem; margin: .5rem 0; }
+  li { margin-bottom: .3rem; }
+
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 10px;
+    padding: 1.3rem;
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 8px rgba(0,0,0,.04);
+  }
+  .card h4 { color: var(--accent); margin-bottom: .5rem; font-size: 1rem; }
+  .card p { font-size: .9rem; }
+
   pre {
-    background: var(--code-bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 16px; overflow-x: auto;
-    font-size: 0.88em; line-height: 1.5; margin: 16px 0;
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 1rem 1.2rem;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: .88rem;
+    line-height: 1.5;
+    margin: 1rem 0;
   }
-  code {
-    background: var(--code-bg); padding: 2px 6px; border-radius: 4px; font-size: 0.9em;
+  code { font-family: "JetBrains Mono", "Fira Code", monospace; }
+  p code, li code {
+    background: #e8e8ee;
+    padding: .1rem .4rem;
+    border-radius: 4px;
+    font-size: .85rem;
+    color: var(--accent2);
   }
-  pre code { background: none; padding: 0; border-radius: 0; }
-  .info-box, .warn-box {
-    border-left: 4px solid; padding: 14px 18px; margin: 16px 0;
-    border-radius: 0 8px 8px 0; background: var(--card-bg);
-  }
-  .info-box { border-color: var(--accent); }
-  .warn-box { border-color: var(--orange); }
+
   table {
-    width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.9em;
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
   }
   th, td {
-    padding: 10px 12px; border: 1px solid var(--border); text-align: left;
+    border: 1px solid var(--border);
+    padding: .6rem .8rem;
+    text-align: left;
+    font-size: .9rem;
   }
-  th { background: var(--code-bg); font-weight: 600; color: #f0f6fc; }
-  @media (max-width: 600px) {
-    .container { padding: 20px 12px; }
-    h1 { font-size: 1.5em; }
-    pre { font-size: 0.8em; padding: 12px; }
+  th { background: #f1f3f9; font-weight: 600; }
+  tr:hover { background: #f8f9ff; }
+
+  .output-box {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    padding: 1rem 1.2rem;
+    border-radius: 6px;
+    margin: 1rem 0;
+    font-family: monospace;
+    font-size: .85rem;
+    white-space: pre-wrap;
+    line-height: 1.4;
   }
-  .toc { margin: 24px 0; padding: 16px 20px; background: var(--card-bg); border-radius: 8px; border: 1px solid var(--border); }
-  .toc ul { list-style: none; margin: 0; }
-  .toc li { margin: 6px 0; }
-  .toc a { color: var(--accent); text-decoration: none; }
-  .toc a:hover { text-decoration: underline; }
-  .dim { color: #8b949e; font-size: 0.9em; }
+
+  .warn-box {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-left: 4px solid var(--warn);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    margin: 1rem 0;
+    font-size: .9rem;
+  }
+  .warn-box strong { color: #b45309; }
+
+  .info-box {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-left: 4px solid var(--accent);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    margin: 1rem 0;
+    font-size: .9rem;
+  }
+  .info-box strong { color: #1e40af; }
+
+  .result {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+    font-size: .9rem;
+  }
+  .result strong { color: #15803d; }
+
+  footer {
+    text-align: center;
+    padding: 2rem;
+    color: #888;
+    font-size: .85rem;
+    border-top: 1px solid var(--border);
+    margin-top: 2rem;
+  }
+  footer a { color: var(--accent); }
+
+  @media (max-width: 640px) {
+    header h1 { font-size: 1.8rem; }
+    nav ul { gap: 1rem; }
+    header p { font-size: 1rem; }
+  }
 </style>
 </head>
 <body>
-<div class="container">
 
-<h1>2D 材料元素替换推荐引擎</h1>
-<p class="subtitle">
-  <span class="badge badge-green">v2.0</span>
-  <span class="badge badge-blue">结构无关</span>
-  基于化学兼容性 + POSCAR 几何分析的替换推荐，适用于任意新结构
-</p>
+<header>
+  <h1>元素替换声子稳定性预筛选工具</h1>
+  <p>基于电子构型、离子半径、电负性、氧化态的综合评分引擎</p>
+  <span class="badge">replace.py</span>
+  <span class="badge">交互式 / 按环境分组</span>
+  <span class="badge">Python · pymatgen / element_data.py</span>
+</header>
 
-<div class="toc">
-<strong>目录</strong>
-<ul>
-  <li><a href="#intro">1. 概述</a></li>
-  <li><a href="#install">2. 安装与依赖</a></li>
-  <li><a href="#usage">3. 基本用法</a></li>
-  <li><a href="#examples">4. 示例</a></li>
-  <li><a href="#output">5. 输出解读</a></li>
-  <li><a href="#scoring">6. 评分标准详解</a></li>
-  <li><a href="#advanced">7. 高级选项</a></li>
-  <li><a href="#caveats">8. 重要限制</a></li>
-</ul>
-</div>
+<nav>
+  <ul>
+    <li><a href="#intro">概述</a></li>
+    <li><a href="#install">安装</a></li>
+    <li><a href="#usage">基本用法</a></li>
+    <li><a href="#interactive">交互模式</a></li>
+    <li><a href="#environments">配位环境分组</a></li>
+    <li><a href="#scoring">评分标准</a></li>
+    <li><a href="#examples">示例</a></li>
+    <li><a href="#output">输出解读</a></li>
+    <li><a href="#advanced">高级选项</a></li>
+    <li><a href="#workflow">建议工作流</a></li>
+  </ul>
+</nav>
 
-<h2 id="intro">1. 概述</h2>
+<main>
+
+<!-- ==================== 概述 ==================== -->
+<section id="intro">
+<h2>概述</h2>
 
 <p>
-替换元素后声子谱不稳定是 2D 材料研究中常见的瓶颈。
-本程序从 <strong>可迁移的物理化学原则</strong> 出发，不依赖特定结构类型，
-适用于任意新结构的元素替换预筛选。
+在 VASP 计算中，通过元素替换调控材料性质是常见策略。但有些替换方案
+<strong>无论怎么优化结构，声子谱总是出现虚频</strong>，
+意味着该结构在动力学上不稳定。
+</p>
+<p>
+<strong>replace.py</strong> 是一个零计算成本的启发式预筛选工具，仅需 POSCAR 文件，
+几秒钟即可输出替换元素评分排名。支持双通道运行：
+有 <code>pymatgen</code> 时自动使用完整功能，无 <code>pymatgen</code> 时
+通过内置 <code>element_data.py</code> 降级运行。
 </p>
 
-<p><strong>设计思路：</strong></p>
-<ul>
-  <li>❌ 不做"结构匹配"——新结构的声子稳定性无法从旧结构直接推断</li>
-  <li>✅ 从 POSCAR 的实际键长出发，计算替换后的晶格应变</li>
-  <li>✅ 基于元素本征属性（半径、电负性、电子构型、氧化态）评分</li>
-  <li>✅ 数据库仅作为"跨界趋势"参考，不限制于特定结构类型</li>
-</ul>
+<div class="card-grid">
+  <div class="card">
+    <h4>零成本预筛选</h4>
+    <p>无需 DFT 计算，从化学兼容性原则出发，秒级输出评分排名。</p>
+  </div>
+  <div class="card">
+    <h4>交互模式</h4>
+    <p>直接运行 <code>python replace.py POSCAR</code>，以交互方式选择要替换的原子。</p>
+  </div>
+  <div class="card">
+    <h4>按配位环境分组</h4>
+    <p>同元素不同位点若配位环境不同，自动分组并分别推荐替代元素。</p>
+  </div>
+  <div class="card">
+    <h4>分数氧化态</h4>
+    <p>通过电荷平衡方程自动计算非整数有效氧化态，更准确反映实际电子状态。</p>
+  </div>
+  <div class="card">
+    <h4>加权综合排名</h4>
+    <p>替换同元素全部位点时，按各环境位点数量加权计算综合排名。</p>
+  </div>
+  <div class="card">
+    <h4>候选 POSCAR 输出</h4>
+    <p>直接生成替换后的 POSCAR 文件，配合 <code>--output-dir</code> 一键导出。</p>
+  </div>
+</div>
 
 <div class="warn-box">
 <strong>重要提醒：</strong>本程序是<strong>预筛选工具</strong>，不是声子稳定性预测器。
-高分意味着该替换方案在化学和几何上兼容性较好，声子稳定的概率较高，
-但最终仍需 DFT+phonopy 验证。
+高分意味着化学/几何兼容性较好，声子稳定的概率较高，
+但最终仍需 DFT + phonopy 验证。尤其是 Se 替换 S（评分高）仍可能因电子结构原因出现虚频。
 </div>
+</section>
 
-<h2 id="install">2. 安装与依赖</h2>
+<!-- ==================== 安装 ==================== -->
+<section id="install">
+<h2>安装</h2>
 
 <h3>环境要求</h3>
-<ul>
-  <li>Python ≥ 3.8</li>
-  <li>pymatgen (≥ 2023.0)</li>
-</ul>
+<table>
+  <tr><th>组件</th><th>需求</th></tr>
+  <tr><td>Python</td><td>&ge; 3.8</td></tr>
+  <tr><td>pymatgen</td><td>&ge; 2024.0（可选——有内置降级通道）</td></tr>
+</table>
 
-<h3>安装</h3>
+<h3>安装步骤</h3>
 <pre><code>git clone https://github.com/yingjwei/phonopy.git
 cd phonopy
-pip install pymatgen
-python recommend.py POSCAR --element V</code></pre>
+pip install pymatgen   # 可选。不安装则使用内置 element_data.py 降级</code></pre>
 
-<h2 id="usage">3. 基本用法</h2>
+<p>直接运行交互模式：</p>
+<pre><code>python replace.py POSCAR</code></pre>
+<p>或指定元素：</p>
+<pre><code>python replace.py POSCAR --element V</code></pre>
+</section>
 
-<pre><code>python recommend.py &lt;POSCAR&gt; --element &lt;元素符号&gt; [选项]</code></pre>
+<!-- ==================== 基本用法 ==================== -->
+<section id="usage">
+<h2>基本用法</h2>
 
+<pre><code>python replace.py &lt;POSCAR&gt; [--element &lt;元素&gt; | --site &lt;位点&gt;] [选项]</code></pre>
+
+<div class="card-grid">
+  <div class="card">
+    <h4>交互模式（推荐）</h4>
+    <p>无参数运行，自动显示 POSCAR 信息、原子坐标标签、配位环境分组，交互式选择替换目标。</p>
+    <pre><code>python replace.py POSCAR</code></pre>
+  </div>
+  <div class="card">
+    <h4>按元素替换（分环境）</h4>
+    <p>自动按配位环境分组，每个环境单独计算有效氧化态并推荐。</p>
+    <pre><code>python replace.py POSCAR --element N</code></pre>
+  </div>
+  <div class="card">
+    <h4>按位点替换（传统模式）</h4>
+    <p>精确指定位点编号，跳过环境分组。</p>
+    <pre><code>python replace.py POSCAR --site 1 3 5</code></pre>
+  </div>
+  <div class="card">
+    <h4>手动指定候选</h4>
+    <p>缩小候选范围，只考虑特定元素。</p>
+    <pre><code>python replace.py POSCAR --element V \
+  --candidates Nb,Ta,Mo,W,Cr</code></pre>
+  </div>
+  <div class="card">
+    <h4>批量输出</h4>
+    <p>生成候选 POSCAR + JSON 结果。</p>
+    <pre><code>python replace.py POSCAR --element Cl \
+  --ox-state -1 \
+  --output-dir ./candidates \
+  --json results.json</code></pre>
+  </div>
+</div>
+
+<h3>完整参数列表</h3>
 <table>
   <tr><th>参数</th><th>说明</th><th>必需</th></tr>
-  <tr><td><code>POSCAR</code></td><td>VASP 结构文件</td><td>是</td></tr>
-  <tr><td><code>--element</code></td><td>要替换的元素符号</td><td>是*</td></tr>
-  <tr><td><code>--site</code></td><td>要替换的位点编号（1-based），与 --element 二选一</td><td>是*</td></tr>
-  <tr><td><code>--candidates</code></td><td>候选列表（逗号分隔或内置组名）</td><td>否</td></tr>
-  <tr><td><code>--exclude</code></td><td>排除的元素</td><td>否</td></tr>
+  <tr><td><code>POSCAR</code></td><td>VASP 结构文件（路径）</td><td>是</td></tr>
+  <tr><td><code>--element</code></td><td>要替换的元素符号（如 V, Cl, S）</td><td>见说明</td></tr>
+  <tr><td><code>--site</code></td><td>要替换的位点编号（从 1 开始），可与 --element 二选一</td><td>见说明</td></tr>
+  <tr><td><code>--candidates</code></td><td>候选元素（逗号分隔）或内置组名</td><td>否</td></tr>
   <tr><td><code>--ox-state</code></td><td>目标氧化态（推荐指定，提高准确性）</td><td>否</td></tr>
-  <tr><td><code>--top</code></td><td>显示前 N 个（默认 15）</td><td>否</td></tr>
-  <tr><td><code>--json</code></td><td>输出 JSON 文件</td><td>否</td></tr>
-  <tr><td><code>--weights</code></td><td>自定义 6 个评分权重</td><td>否</td></tr>
+  <tr><td><code>--output-dir</code></td><td>输出目录：生成每个候选元素的 POSCAR 文件</td><td>否</td></tr>
+  <tr><td><code>--json</code></td><td>输出 JSON 结果文件路径</td><td>否</td></tr>
+  <tr><td><code>--top</code></td><td>显示前 N 个候选（默认 15）</td><td>否</td></tr>
+  <tr><td><code>--weights</code></td><td>自定义 5 个评分权重（见评分标准）</td><td>否</td></tr>
+  <tr><td><code>--exclude</code></td><td>排除不想要的候选元素（逗号分隔）</td><td>否</td></tr>
 </table>
-
-<h2 id="examples">4. 示例</h2>
-
-<h3>替换 V₄S₉Br₄ 中的 V</h3>
-<pre><code>python recommend.py POSCAR_V4S9Br4 --element V</code></pre>
-
-<pre><code>======================================================================
-  元素替换推荐 — V in V4S9Br4
-======================================================================
-  POSCAR     : POSCAR_V4S9Br4
-  替换元素   : V
-  电子构型   : d-区 5 族
-  氧化态     : 4
-
-  评分说明:
-  几何 = 从POSCAR实际键长分析替换后晶格应变 (权重0.30)
-  电子 = 同族d电子数匹配度 (权重0.25)
-  半径 = 离子半径兼容性 (权重0.15)
-  电负 = 电负性相似度 (权重0.10)
-  氧化 = 氧化态兼容性 (权重0.10)
-  趋势 = 数据库跨界趋势 (权重0.10)
-
-  Rank 元素   总分    几何    电子    半径    电负   氧化   趋势  note
----------------------------------------------------------------------
-  1    Nb     0.812   0.85    0.80    0.72    0.72   0.80  0.20
-  2    Ta     0.795   0.82    0.80    0.68    0.72   0.80  0.20
-  3    Cr     0.740   0.78    0.75    0.70    0.65   0.80  0.05
-  ...</code></pre>
-
-<h3>新结构测试</h3>
-<pre><code>python recommend.py ~/users/wyj/CdVN/spintexture/POSCAR --element V</code></pre>
-
-<p>程序不会匹配任何数据库中的旧结构，而是直接从 POSCAR 分析键长来计算几何分。</p>
-
-<h3>自定义候选 + JSON</h3>
-<pre><code>python recommend.py POSCAR --element V \
-    --candidates Nb,Ta,Mo,W,Cr \
-    --ox-state 4 --top 10 --json results.json</code></pre>
-
-<h2 id="output">5. 输出解读</h2>
-
-<table>
-  <tr><th>字段</th><th>范围</th><th>说明</th></tr>
-  <tr><td>总分</td><td>0~1</td><td>加权综合得分，越高越好</td></tr>
-  <tr><td>几何</td><td>0~1</td><td>从 POSCAR 实际键长分析的晶格应变</td></tr>
-  <tr><td>电子</td><td>0~1</td><td>电子构型匹配度（同族d电子数）</td></tr>
-  <tr><td>半径</td><td>0~1</td><td>离子半径兼容性</td></tr>
-  <tr><td>电负</td><td>0~1</td><td>Pauling 电负性相似度</td></tr>
-  <tr><td>氧化</td><td>0~1</td><td>氧化态兼容性</td></tr>
-  <tr><td>趋势</td><td>-0.1~0.2</td><td>跨结构数据库全局趋势</td></tr>
-</table>
-
-<h2 id="scoring">6. 评分标准详解</h2>
-
-<h3>几何分（权重 0.30）— 最重要</h3>
-<p>从输入的 POSCAR 直接计算：</p>
-<ol>
-  <li>找到被替换原子的最近邻，计算<strong>平均键长</strong></li>
-  <li>用原子半径估计替换后的预测键长</li>
-  <li>计算晶格应变 = |预测键长 − 原键长| / 原键长</li>
-  <li>评分公式：<code>exp(-5 × 应变)</code></li>
-</ol>
-<p>应变与声子稳定性的关系：</p>
-<ul>
-  <li>&lt; 3% → 几乎无影响，得分接近 1.0</li>
-  <li>3–8% → 可能有影响，得分 0.6–0.9</li>
-  <li>8–15% → 晶格畸变风险高，得分 0.3–0.6</li>
-  <li>&gt; 15% → 很可能不稳定，得分 &lt; 0.3</li>
-</ul>
-
-<h3>电子分（权重 0.25）</h3>
-<p>同族元素 d 电子数相同 → 成键特性最相似：</p>
-<ul>
-  <li>同族（相同价电子数）：+0.50</li>
-  <li>同区块（d→d, p→p）：+0.20</li>
-  <li>还有邻族(+0.15)、同行(+0.10)等加分</li>
-</ul>
-
-<h3>半径分（权重 0.15）</h3>
-<p>基于 Shannon 离子半径。<code>exp(-2 × |Δr| / r_host)</code>，差异越小越好。</p>
-
-<h3>电负分（权重 0.10）</h3>
-<p>Pauling 电负性差异 → 成键特性变化。差异小 → 电荷转移少 → 电子结构变化小。</p>
-
-<h3>氧化分（权重 0.10）</h3>
-<p>与目标氧化态完全匹配 → 1.0；±1 内 → 0.8；±2 内 → 0.5。推荐用 <code>--ox-state</code> 显式指定。</p>
-
-<h3>趋势分（权重 0.10）</h3>
-<p>来自数据库但<strong>不匹配具体结构</strong>：只看这个元素在所有已测结构中的<strong>全局表现</strong>：</p>
-<ul>
-  <li>只出现在稳定列表中 → +0.20（如 V, Cr, Re）</li>
-  <li>只出现在不稳定列表中 → −0.10（如 Bi, Cu, Sb, W）</li>
-  <li>既有稳定也有不稳定 → +0.05（稳定性依赖具体组合）</li>
-  <li>无数据 → 0.00（中性）</li>
-</ul>
-
-<h2 id="advanced">7. 高级选项</h2>
-
-<h3>自定义权重</h3>
-<pre><code># 6 个权重：[几何, 电子, 半径, 电负, 氧化, 趋势]
-python recommend.py POSCAR --element V \
-    --weights 0.35 0.25 0.15 0.10 0.10 0.05</code></pre>
 
 <h3>内置候选分组</h3>
 <table>
   <tr><th>组名</th><th>元素</th></tr>
-  <tr><td><code>all</code></td><td>全部常见元素（~60）</td></tr>
+  <tr><td><code>all</code></td><td>全部常见元素（75+）</td></tr>
   <tr><td><code>tm</code></td><td>过渡金属</td></tr>
+  <tr><td><code>main</code></td><td>主族元素</td></tr>
   <tr><td><code>chalcogen</code></td><td>O, S, Se, Te</td></tr>
+  <tr><td><code>pnictogen</code></td><td>N, P, As, Sb, Bi</td></tr>
   <tr><td><code>halogen</code></td><td>F, Cl, Br, I</td></tr>
+  <tr><td><code>alkali</code></td><td>Li, Na, K, Rb, Cs</td></tr>
+  <tr><td><code>alkaline</code></td><td>Mg, Ca, Sr, Ba</td></tr>
+  <tr><td><code>lanthanide</code></td><td>La&ndash;Lu 稀土元素</td></tr>
   <tr><td><code>early-tm</code></td><td>前过渡金属</td></tr>
   <tr><td><code>late-tm</code></td><td>后过渡金属</td></tr>
 </table>
+</section>
 
-<h2 id="caveats">8. 重要限制</h2>
+<!-- ==================== 交互模式 ==================== -->
+<section id="interactive">
+<h2>交互模式</h2>
 
-<div class="warn-box">
-<strong>本程序不能替代 DFT 计算。</strong>
-</div>
-
-<p>声子不稳定的原因非常复杂，本程序只考虑了其中<strong>一部分</strong>：</p>
-
-<table>
-  <tr><th>本程序考虑的因素</th><th>本程序未考虑的因素</th></tr>
-  <tr><td>尺寸失配 → 晶格应变</td><td>电子关联效应（U 值）</td></tr>
-  <tr><td>电负性差异 → 键合变化</td><td>磁性/自旋极化</td></tr>
-  <tr><td>化学计量/氧化态兼容</td><td>Jahn-Teller 畸变</td></tr>
-  <tr><td>价电子数/d电子匹配</td><td>费米面嵌套</td></tr>
-  <tr><td>数据库跨界趋势参考</td><td>电荷密度波/CDW 不稳定性</td></tr>
-  <tr><td></td><td>超胞大小效应/收敛性</td></tr>
-</table>
-
-<p><strong>建议工作流：</strong></p>
-<ol>
-  <li>用本程序预筛 → 选出 Top 5-10 候选</li>
-  <li>对 Top 5 候选做 DFT 结构弛豫（ISIF=3）</li>
-  <li>对弛豫后结构做 phonopy 声子计算</li>
-  <li>根据声子谱结果反馈调整</li>
-</ol>
-
-<div class="info-box">
-<strong>后续方向：</strong>
-如果积累更多数据，未来可以用 ML 模型（MACE/CHGNet）替代启发式评分，进行快速弛豫+声子计算，
-大幅提高预测准确度（方案 B）。
-</div>
-
-<hr style="border: none; border-top: 1px solid var(--border); margin: 40px 0;">
-
-<p style="text-align: center; color: #8b949e; font-size: 0.9em;">
-  2D Material Element Substitution Recommender v2.0<br>
-  <a href="https://github.com/yingjwei/phonopy" style="color: var(--accent);">github.com/yingjwei/phonopy</a>
+<p>
+直接运行 <code>python replace.py POSCAR</code> 即可进入交互模式。
+该模式下自动执行以下步骤：
 </p>
 
+<ol>
+  <li><strong>显示结构摘要</strong> &mdash; 文件路径、化学式、所含元素及原子数</li>
+  <li><strong>列出所有原子坐标</strong> &mdash; 带标签（N1, N2, V1, W1, ...）和 Cartesian 坐标</li>
+  <li><strong>按配位环境分组</strong> &mdash; 显示每个元素的近邻配位环境、有效氧化态</li>
+  <li><strong>等待用户输入</strong> &mdash; 支持三种输入格式</li>
+</ol>
+
+<h3>输入格式</h3>
+<table>
+  <tr><th>格式</th><th>示例</th><th>含义</th></tr>
+  <tr><td><code>元素符号</code></td><td><code>N</code></td><td>替换该元素的所有原子，各环境分别推荐 + 加权综合排名</td></tr>
+  <tr><td><code>符号+序号</code></td><td><code>N1</code></td><td>替换该元素的第 1 个原子（按 POSCAR 顺序）</td></tr>
+  <tr><td><code>数字</code></td><td><code>3</code></td><td>替换位点 3（从 1 开始编号的传统模式）</td></tr>
+</table>
+
+<p>自动根据输入决定替换模式，使用体验更流畅。</p>
+</section>
+
+<!-- ==================== 配位环境分组 ==================== -->
+<section id="environments">
+<h2>配位环境分组</h2>
+
+<p>
+同一元素在结构中可能处于不同配位环境。例如，N 原子可能同时处于
+VN<sub>3</sub> 和 VN<sub>2</sub>W 两种不同的近邻配位中。
+<strong>replace.py</strong> 自动对同元素不同位点进行环境分类：
+</p>
+
+<ul>
+  <li><strong>近邻定义</strong> &mdash; 3.5 &Aring; 截断半径内的异种元素（排除同元素近邻）</li>
+  <li><strong>环境签名</strong> &mdash; 按近邻种类和数量生成唯一标识（如 <code>N@V3</code>、<code>N@V2W1</code>）</li>
+  <li><strong>每个环境独立推荐</strong> &mdash; 不同环境可能推荐不同的最佳替代元素</li>
+</ul>
+
+<h3>有效氧化态</h3>
+<p>
+通过全局电荷平衡方程自动计算目标元素的分数氧化态：
+</p>
+<pre><code>Sigma(n_i * ox_i) = 0
+- 强阴离子固定价态: O=-2, N=-3, F/Cl/Br/I=-1, S/Se/Te=-2, P/As=-3
+- 阳离子取常见氧化态
+- 目标元素的有效氧化态 = -(总阳离子贡献 + 其他阴离子贡献) / 目标原子数</code></pre>
+
+<p>
+结果可能是非整数（如 N = -4.33），更真实地反映复杂结构中的电子分布。
+可通过 <code>--ox-state</code> 手动覆盖。
+</p>
+
+<h3>原子标签与坐标</h3>
+<p>
+交互模式和 <code>--element</code> 模式下，输出结果会按配位环境显示。
+每个位点从 1 开始编号，并与 Cartesian 坐标对应，方便可视化软件交叉验证。
+</p>
+</section>
+
+<!-- ==================== 评分标准 ==================== -->
+<section id="scoring">
+<h2>评分标准详解</h2>
+
+<table>
+  <tr><th>维度</th><th>权重</th><th>说明</th></tr>
+  <tr>
+    <td><strong>电子构型</strong></td>
+    <td><strong>0.45</strong></td>
+    <td><strong>最重要。</strong>同族（相同价电子数 / d 电子数）最高分。
+        同区块（d&harr;d / p&harr;p）次之。电子排布决定成键特性。</td>
+  </tr>
+  <tr>
+    <td>离子半径</td>
+    <td>0.20</td>
+    <td>Shannon 半径匹配度。基于 <code>exp(-2 &times; |Delta;r| / r_host)</code>，
+        差异越小越好。支持分数氧化态插值。</td>
+  </tr>
+  <tr>
+    <td>电负性</td>
+    <td>0.15</td>
+    <td>Pauling 标度差异。差异小 &rarr; 电荷转移少 &rarr; 键性相似 &rarr; 电子结构变化小。</td>
+  </tr>
+  <tr>
+    <td>氧化态</td>
+    <td>0.10</td>
+    <td>候选元素是否存在目标氧化态。对分数氧化态自动查找最近整数态并计算兼容度。</td>
+  </tr>
+  <tr>
+    <td>周期邻近</td>
+    <td>0.10</td>
+    <td>同族 (+0.50) &gt; 同区块 (+0.20) &gt; 邻族 (+0.15) &gt; 同行 (+0.10)。</td>
+  </tr>
+</table>
+
+<div class="result">
+  <strong>评分公式：</strong>总分 = 电子构型&times;0.45 + 离子半径&times;0.20 + 电负性&times;0.15 + 氧化态&times;0.10 + 周期邻近&times;0.10。
+  权重可通过 <code>--weights</code> 自定义（传入 5 个浮点数，
+  顺序：半径 电负性 氧化态 周期 电子）。
 </div>
+
+<div class="info-box">
+<strong>氧化态自动检测：</strong>
+<p>检测优先级：</p>
+<ol>
+  <li><strong>pymatgen</strong> &mdash; 调用 <code>add_oxidation_state_by_guess()</code></li>
+  <li><strong>分数电荷平衡</strong> &mdash; 通过 <code>Sigma;n&sub;i;&sdot;ox&sub;i; = 0</code> 计算分数值</li>
+  <li><strong>常见价态</strong> &mdash; 取 <code>common_oxidation_states[0]</code></li>
+</ol>
+<p>推荐用 <code>--ox-state</code> 手动指定，避免自动检测偏差。</p>
+</div>
+
+<h3>多环境加权综合排名</h3>
+<p>
+当替换某个元素的所有位点（跨多个配位环境）时，程序在输出各环境独立排名的同时，
+会额外输出<strong>加权综合排名</strong>。综合分 = &Sigma;(位点比例 &times; 单环境分数)，
+位点越多的环境对综合排名影响越大。
+</p>
+</section>
+
+<!-- ==================== 示例 ==================== -->
+<section id="examples">
+<h2>示例</h2>
+
+<h3>交互模式</h3>
+<pre><code>python replace.py POSCAR_V4S9Cl4</code></pre>
+
+<div class="output-box">============================================================
+  文件: POSCAR_V4S9Cl4
+  成分: V4S9Cl4
+  原子: Cl, S, V
+  数量: {'Cl': 4, 'S': 9, 'V': 4}
+============================================================
+
+  原子坐标 (Cartesian):
+    V1    0.000000  0.000000  0.000000
+    V2    1.500000  0.866025  3.000000
+    V3    3.000000  0.000000  0.000000
+    V4    4.500000  0.866025  3.000000
+    S1    0.000000  0.000000  2.400000
+    ...
+
+  配位环境分组:
+    V@S6Cl1: 位点 [1, 2, 3, 4], 近邻 {'S': 6, 'Cl': 1}, 氧化态 4.00, CN=7
+
+  输入要替换的原子 (如 V / V1 / 3):</pre></div>
+
+<h3>替换 V&#x2084;S&#x2089;Cl&#x2084; 中的 V</h3>
+<pre><code>python replace.py POSCAR_V4S9Cl4 --element V</code></pre>
+
+<div class="output-box">=======================================================
+  元素替换推荐 — V in V4S9Cl4
+=======================================================
+  检测到 1 种配位环境:
+    V@S6Cl1: 4 个位点, 配位 {'S': 6, 'Cl': 1},
+    有效氧化态 4.00, 平均配位数 7
+
+  (自动生成了 78 个候选)
+
+  --- 环境: V@S6Cl1  (位点 [1, 2, 3, 4]) ---
+  配位: {'S': 6, 'Cl': 1}  氧化态: 4.00  配位数: 7
+
+Rank 元素    总分     电子     半径     电负     氧化   族   区块  note
+--------------------------------------------------------------------------------
+1    Nb     0.890   0.900   0.745   0.975   1.00   5    d     同族(5族) | 氧化态兼容
+2    Ta     0.856   0.850   0.745   0.897   1.00   5    d     同族(5族) | 氧化态兼容
+3    Mo     0.579   0.400   0.814   0.643   0.80   6    d     半径匹配</pre></div>
+
+<h3>卤素位替换 Cl &rarr; F, Br, I</h3>
+<pre><code>python replace.py POSCAR --element Cl --candidates F,Br,I --ox-state -1</code></pre>
+
+<h3>硫族位全部候选</h3>
+<pre><code>python replace.py POSCAR --element S --candidates chalcogen --ox-state -2</code></pre>
+
+<h3>批量输出候选 POSCAR</h3>
+<pre><code>python replace.py POSCAR --element V --candidates Nb,Ta \
+    --ox-state 4 --output-dir ./candidates --json results.json</code></pre>
+<p>每个候选元素生成一个替换后的 POSCAR 文件，保存在 <code>./candidates/</code> 目录下，
+可用于后续的 VASP 弛豫和 phonopy 计算。</p>
+
+<h3>按位点替换</h3>
+<pre><code>python replace.py POSCAR --site 2 4</code></pre>
+<p>直接指定位点编号（从 1 开始），跳过环境分组，适用于精确控制替换位置。</p>
+</section>
+
+<!-- ==================== 输出解读 ==================== -->
+<section id="output">
+<h2>输出解读</h2>
+
+<table>
+  <tr><th>字段</th><th>范围</th><th>说明</th></tr>
+  <tr><td>总分</td><td>0~1</td><td>加权综合得分，越高越好</td></tr>
+  <tr><td>电子</td><td>0~1</td><td>电子构型匹配度（同族 d 电子数）</td></tr>
+  <tr><td>半径</td><td>0~1</td><td>Shannon 离子半径兼容性</td></tr>
+  <tr><td>电负</td><td>0~1</td><td>Pauling 电负性相似度</td></tr>
+  <tr><td>氧化</td><td>0/0.5/0.8/1</td><td>氧化态兼容性（支持分数氧化态）</td></tr>
+  <tr><td>族</td><td>1~18</td><td>元素所在族号</td></tr>
+  <tr><td>区块</td><td>s/p/d/f</td><td>元素所在电子区块</td></tr>
+  <tr><td>note</td><td>&mdash;</td><td>文本备注，说明评分依据</td></tr>
+</table>
+
+<h3>多环境加权综合排名输出</h3>
+<p>当同元素存在多个配位环境时，额外输出加权综合排名表。各环境权重 = 该环境位点数 / 总位点数。</p>
+<div class="output-box">  ==================================================
+  加权综合排名 (按位点数量加权)
+  ==================================================
+    N@V3: 4/7 = 0.57
+    N@V2W1: 3/7 = 0.43
+
+  加权综合:
+Rank 元素    总分     电子     半径     电负     氧化
+--------------------------------------------------------------------------------
+1    P      0.721   0.750   0.623   0.897   0.80
+2    As     0.684   0.650   0.554   1.000   0.80
+3    Sb     0.631   0.550   0.483   0.950   0.80</pre></div>
+</section>
+
+<!-- ==================== 高级选项 ==================== -->
+<section id="advanced">
+<h2>高级选项</h2>
+
+<h3>自定义权重</h3>
+<pre><code># 5 个权重：[半径, 电负性, 氧化态, 周期, 电子构型]
+python replace.py POSCAR --element V \
+    --weights 0.25 0.15 0.10 0.05 0.45</code></pre>
+
+<h3>自定义候选列表</h3>
+<p>逗号分隔的元素列表优先于内置分组。可用任意组合：</p>
+<pre><code>python replace.py POSCAR --element S \
+    --candidates Se,Te,O</code></pre>
+
+<h3>排除不想要的候选</h3>
+<pre><code>python replace.py POSCAR --element V --exclude Tc,Hg,Pb</code></pre>
+
+<h3>双通道运行</h3>
+<p><strong>replace.py</strong> 默认尝试导入 <code>pymatgen</code>。若未安装，自动降级使用
+<code>element_data.py</code> 本地数据库 + 纯 Python 实现的 <code>SimpleStructure</code> 类。
+两种通道下评分逻辑完全一致，区别仅在于 POSCAR I/O 实现。</p>
+
+<h3>批量生成 + 流水线对接</h3>
+<p>配合 <code>server_pipeline.py</code> 可完成从筛选到 VASP 弛豫、phonopy 声子计算的全流程自动化：</p>
+<pre><code># 1. 启发式筛选 + 生成候选 POSCAR
+python replace.py POSCAR --element V \
+    --candidates Nb,Ta,Mo,W,Cr \
+    --ox-state 4 --output-dir ./candidates
+
+# 2. 生成 VASP 弛豫作业（server_pipeline）
+python server_pipeline.py setup ./candidates \
+    -r ./ref_opt -o ./vasp_jobs
+
+# 3. 弛豫完成后生成声子作业
+python server_pipeline.py phonon-setup ./vasp_jobs \
+    --species "S V Nb"
+
+# 4. 声子计算结果分析
+python server_pipeline.py analyze ./vasp_jobs \
+    --json phonon_results.json</code></pre>
+</section>
+
+<!-- ==================== 建议工作流 ==================== -->
+<section id="workflow">
+<h2>建议工作流</h2>
+
+<div class="warn-box">
+<strong>本程序不能替代 DFT 计算。</strong> 评分高 &ne; 声子稳定。电子构型匹配降低了试错成本，
+但最终仍需 DFT + phonopy 验证。
+</div>
+
+<h3>完整流程</h3>
+<ol>
+  <li><strong>启发式预筛选</strong> &mdash; 用 replace.py 选出 Top 5&ndash;10 候选</li>
+  <li><strong>DFT 结构弛豫</strong> &mdash; 对 Top 5 候选做 VASP 弛豫（ISIF=3）</li>
+  <li><strong>phonopy 声子计算</strong> &mdash; 对弛豫后结构进行 phonon 分析</li>
+  <li><strong>结果判读</strong> &mdash; 根据声子谱反馈调整：虚频仅出现在 Gamma 点 &rarr; 可安全忽略（声学求和规则伪影）；非 Gamma 点虚频 &rarr; 真实不稳定</li>
+</ol>
+
+<h3>声子不稳定的常见原因</h3>
+<table>
+  <tr><th>原因</th><th>表现</th><th>对策</th></tr>
+  <tr>
+    <td>尺寸失配</td>
+    <td>高频虚频、结构扭曲</td>
+    <td>用启发式筛选避免半径差异 &gt;20%</td>
+  </tr>
+  <tr>
+    <td>电荷失配</td>
+    <td>虚频 + 电子不收敛</td>
+    <td>匹配氧化态；考虑额外掺杂补偿</td>
+  </tr>
+  <tr>
+    <td>费米面嵌套</td>
+    <td>特定 q 点虚频 (&pi;,&pi;)</td>
+    <td>考虑磁性、自旋极化、U 值</td>
+  </tr>
+  <tr>
+    <td>Jahn-Teller</td>
+    <td>局域结构畸变</td>
+    <td>检查对称性破缺可能性</td>
+  </tr>
+  <tr>
+    <td>声学求和规则</td>
+    <td>仅 Gamma 点小虚频</td>
+    <td>可忽略（自动识别为伪影）</td>
+  </tr>
+</table>
+
+<div class="info-box">
+<strong>后续方向：</strong>如果积累更多数据，未来可以引入 ML 势（MACE/CHGNet）替代启发式评分，
+进行快速弛豫+声子计算，大幅提高预测准确度。
+</div>
+</section>
+
+</main>
+
+<footer>
+  <p>Element Substitution Phonon Stability Screener &mdash; replace.py</p>
+  <p><a href="https://github.com/yingjwei/phonopy">GitHub 仓库</a></p>
+</footer>
+
 </body>
 </html>
