@@ -544,7 +544,7 @@ def replace(structure, site_idx, host_sym, ox, candidates, weights, cn):
         # Generate smart note
         note_parts = []
         if ec > 0.80:
-            note_parts.append(f"同族(第{cand.group}族)")
+            note_parts.append("同族")
         elif ec > 0.50:
             note_parts.append(f"邻族")
         if rs > 0.80:
