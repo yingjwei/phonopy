@@ -23,12 +23,165 @@ from typing import Optional
 import numpy as np
 
 try:
-    from pymatgen.core import Element, Structure
+    from pymatgen.core import Element
 except ImportError:
     print("需要 pymatgen: pip install pymatgen", file=sys.stderr)
     sys.exit(1)
 
 from phonon_data import ALL_STRUCTURES
+
+
+# ═══════════════════════════════════════════════════════════════
+# Pure-Python POSCAR parser (no spglib dependency)
+# ═══════════════════════════════════════════════════════════════
+
+class SimpleStructure:
+    """Minimal structure class for POSCAR I/O and neighbor analysis."""
+
+    class _Lattice:
+        def __init__(self, matrix):
+            self._matrix = np.array(matrix, dtype=float)
+            self.a = float(np.linalg.norm(self._matrix[0]))
+            self.b = float(np.linalg.norm(self._matrix[1]))
+            self.c = float(np.linalg.norm(self._matrix[2]))
+
+    class _Site:
+        def __init__(self, symbol, cart_coord, frac_coord):
+            self.species = {Element(symbol): 1.0}
+            self._cart = cart_coord
+            self._frac = frac_coord
+
+    class _Neighbor:
+        def __init__(self, distance):
+            self.distance = distance
+
+    class _Composition:
+        def __init__(self, species_list):
+            from collections import Counter
+            self._cnt = Counter(species_list)
+
+        def as_dict(self):
+            return dict(self._cnt)
+
+        @property
+        def reduced_formula(self):
+            els = sorted(self._cnt.keys())
+            return "".join(f"{e}{c}" if c > 1 else e for e, c in zip(els, [self._cnt[e] for e in els]))
+
+        @property
+        def element_composition(self):
+            return dict(self._cnt)
+
+    def __init__(self, lattice, species, frac_coords):
+        self._lattice = np.array(lattice, dtype=float)        # 3x3, rows = vectors
+        self._species = list(species)
+        self._frac = np.array(frac_coords, dtype=float) % 1.0
+        self._cart = self._frac @ self._lattice                # (N,3)
+        self._n = len(self._species)
+
+    @property
+    def lattice(self):
+        return self._Lattice(self._lattice)
+
+    @property
+    def composition(self):
+        return self._Composition(self._species)
+
+    def __getitem__(self, idx):
+        return self._Site(self._species[idx], self._cart[idx], self._frac[idx])
+
+    def __len__(self):
+        return self._n
+
+    def __iter__(self):
+        for i in range(self._n):
+            yield self[i]
+
+    def copy(self):
+        return SimpleStructure(self._lattice.copy(), self._species[:], self._frac.copy())
+
+    def get_neighbors(self, site, r):
+        """List neighbors within radius r (Å), minimum-image convention."""
+        q = site._frac
+        neigh = []
+        for i in range(self._n):
+            d = self._frac[i] - q
+            d -= np.round(d)                   # wrap to [-0.5, 0.5)
+            dist = float(np.linalg.norm(d @ self._lattice))
+            if 0.01 < dist <= r:
+                neigh.append(self._Neighbor(dist))
+        return neigh
+
+
+def parse_poscar(path):
+    """
+    Parse VASP POSCAR/CONTCAR into a SimpleStructure.
+
+    Supports:
+      - scaling factor (positive = multiplier, negative = volume)
+      - element symbols on line 6 (optional)
+      - Selective dynamics (optional)
+      - Direct / Cartesian / Cart coordinates
+    """
+    with open(path) as f:
+        raw = f.readlines()
+
+    # Scale factor (line 2)
+    scale = float(raw[1].strip())
+
+    # Lattice vectors (lines 3–5)
+    lat = np.array([list(map(float, raw[i].strip().split()[:3])) for i in range(2, 5)])
+    if scale < 0:
+        vol = abs(scale)
+        cur_vol = float(np.linalg.det(lat))
+        lat *= (vol / cur_vol) ** (1.0 / 3.0)
+    elif scale != 1.0:
+        lat *= scale
+
+    # Line 6: element symbols or ion counts
+    line6 = raw[5].strip().split()
+    line7 = raw[6].strip().split()
+
+    # Detect whether line 6 is element symbols (words) or counts (numbers)
+    if line6[0].isdigit():
+        # No element symbols — line 6 is counts directly
+        counts = list(map(int, line6))
+        symbols = [f"X{i+1}" for i in range(len(counts))]  # placeholder
+        coord_start = 6
+    else:
+        symbols = line6
+        counts = list(map(int, line7))
+        coord_start = 7
+
+    # Build species list
+    species = []
+    for sym, cnt in zip(symbols, counts):
+        species.extend([sym] * cnt)
+
+    # Check for Selective dynamics
+    idx = coord_start
+    sdyn = raw[idx].strip().lower().startswith("s")
+    if sdyn:
+        idx += 1
+
+    # Coordinate mode
+    mode = raw[idx].strip().lower()
+    idx += 1
+    is_cart = mode.startswith("c") or mode.startswith("k")
+
+    # Read coordinates, skip selective dynamics flags
+    n_atoms = len(species)
+    coords = np.zeros((n_atoms, 3))
+    for i in range(n_atoms):
+        parts = raw[idx + i].strip().split()
+        coords[i] = list(map(float, parts[:3]))
+
+    if is_cart:
+        # Convert Cartesian → fractional
+        inv = np.linalg.inv(lat.T)
+        coords = (inv @ coords.T).T
+
+    return SimpleStructure(lat, species, coords)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -190,14 +343,6 @@ def _get_ionic_radius(el, ox, cn):
 
 def guess_oxidation(structure, site_idx):
     sp = list(structure[site_idx].species.keys())[0]
-    try:
-        s = structure.copy()
-        s.add_oxidation_state_by_guess()
-        for p, amt in s[site_idx].species.items():
-            if p.symbol == sp.symbol:
-                return int(p.oxi_state)
-    except Exception:
-        pass
     try:
         el = Element(sp.symbol)
         if el.common_oxidation_states:
@@ -508,7 +653,7 @@ def main():
         print(f"错误: POSCAR 文件不存在: {args.poscar}", file=sys.stderr)
         sys.exit(1)
     try:
-        struct = Structure.from_file(args.poscar)
+        struct = parse_poscar(args.poscar)
     except Exception as e:
         print(f"读取 POSCAR 失败: {e}", file=sys.stderr)
         sys.exit(1)
