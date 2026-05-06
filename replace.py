@@ -885,10 +885,9 @@ def main():
         print()
 
         # 解析输入:
-        #   N  = 替换该元素全部位点（多环境加权）
-        #   N1 = 替换该元素的环境 1
-        #   3  = 替换位点 3
-        inp = input("  选择目标 (例: N=全部N, N1=环境1, 3=位点3): ").strip()
+        #   N  = 替换全部 N（多环境加权综合排名）
+        #   N1 = 只替换 N 的环境 1
+        inp = input("  输入元素(全部) 或 元素+环境编号(单个环境): ").strip()
         if not inp:
             print("未输入", file=sys.stderr)
             sys.exit(1)
@@ -915,9 +914,6 @@ def main():
                     print(f"错误: 未找到元素 {el_only}",
                           file=sys.stderr)
                     sys.exit(1)
-            else:
-                # 纯数字 → 位点模式
-                args.site = [int(num_part)]
         else:
             # 纯元素 → 全部替换（加权综合）
             args.element = el_only
