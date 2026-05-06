@@ -34,12 +34,16 @@ except Exception:
 
     class Element:
         """Minimal Element class backed by embedded data."""
-        __slots__ = ('_d',)
+        __slots__ = ('_s', '_d')
         def __init__(self, symbol):
             d = ELEMENT_DATA.get(symbol)
             if d is None:
                 raise ValueError(f"Unknown element: {symbol}")
+            self._s = symbol
             self._d = d
+        @property
+        def symbol(self):
+            return self._s
         @property
         def atomic_radius(self):
             return self._d['atomic_radius']
