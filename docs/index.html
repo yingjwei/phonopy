@@ -246,6 +246,7 @@ footer {
 <table class="file-table">
 <tr><th>文件</th><th>说明</th></tr>
 <tr><td>replace.py</td><td>启发式筛选器 — 电子构型/半径/电负性/氧化态评分，支持交互模式、配位环境分组、分数氧化态</td></tr>
+<tr><td>replace.py</td><td>启发式筛选器 — 基于离子半径、电负性、氧化态评分</td></tr>
 <tr><td>server_pipeline.py</td><td>VASP + phonopy 自动化流水线</td></tr>
 <tr><td>README.md</td><td>Markdown 文档</td></tr>
 <tr><td>docs/index.html</td><td>本页面</td></tr>
@@ -309,6 +310,21 @@ footer {
 
 	<span class="c"># 输出候选 POSCAR + JSON</span>
 	python replace.py POSCAR --element Cl --ox-state -1 	    --output-dir ./candidates --json results.json</pre>
+<pre><span class="c"># 一键推荐 V 的替代元素（自动生成候选 + 评分）</span>
+python replace.py POSCAR --element V
+
+<span class="c"># 一键推荐 Cl 的替代元素</span>
+python replace.py POSCAR --element Cl
+
+<span class="c"># 指定候选列表</span>
+python replace.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr
+
+<span class="c"># 指定氧化态（提高准确性）</span>
+python replace.py POSCAR --element V --ox-state 4
+
+<span class="c"># 输出候选 POSCAR + JSON</span>
+python replace.py POSCAR --element Cl --ox-state -1 \
+    --output-dir ./candidates --json results.json</pre>
 
 <h3>输出示例</h3>
 <pre><span class="c">=================================================================</span>
