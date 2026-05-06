@@ -771,7 +771,7 @@ def table(hits, top_n, header_prefix=""):
     )
     lines.append(fmt.format(
         rank="Rank", el="元素", total="总分", ec="电子",
-        r="半径", en="电负", os="氧化", cgroup="族", cblock="区块"
+        r="半径", en="电负", os="氧化", cgroup="族号", cblock="区块"
     ))
     lines.append(SEP)
     for i, h in enumerate(hits[:top_n], 1):
