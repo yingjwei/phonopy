@@ -802,7 +802,7 @@ def main():
         epilog=__doc__,
     )
     ap.add_argument("poscar", help="POSCAR 文件路径")
-    g = ap.add_mutually_exclusive_group(required=True)
+    g = ap.add_mutually_exclusive_group()
     g.add_argument("--site", type=int, nargs="+",
                    help="要替换的位点编号（从 1 开始）")
     g.add_argument("--element", type=str,
@@ -840,6 +840,65 @@ def main():
         sys.exit(1)
 
     fmt = struct.composition.reduced_formula
+
+    # ── 交互模式（未指定 --element 或 --site） ──
+    if not args.element and not args.site:
+        all_eles = sorted(set(
+            list(site.species.keys())[0].symbol for site in struct
+        ))
+        comp_dict = {}
+        for el_sym, cnt in struct.composition.items():
+            s = el_sym if isinstance(el_sym, str) else str(el_sym)
+            comp_dict[s] = int(cnt)
+
+        print()
+        print("=" * 60)
+        print(f"  文件: {args.poscar}")
+        print(f"  成分: {fmt}")
+        print(f"  原子: {', '.join(all_eles)}")
+        print(f"  数量: {comp_dict}")
+        print("=" * 60)
+        print()
+
+        print("  配位环境分组:")
+        for el in all_eles:
+            groups = classify_sites(struct, el)
+            if not groups:
+                continue
+            for g in groups:
+                site_nums = [s + 1 for s in g.sites]
+                print(f"    {g.label}: 位点 {site_nums}, "
+                      f"近邻 {dict(g.neighbor_counts)}, "
+                      f"氧化态 {g.avg_ox:.2f}, CN={g.avg_cn}")
+        print()
+        inp = input("  输入要替换的原子 (如 N / N1 / 3): ").strip()
+        if not inp:
+            print("未输入原子", file=sys.stderr)
+            sys.exit(1)
+
+        el_only = inp.rstrip("0123456789")
+        num_part = inp[len(el_only):]
+        el_only = el_only.strip()
+
+        if num_part:
+            if el_only:
+                site_idx = None
+                count = 0
+                for i, site in enumerate(struct):
+                    sym = list(site.species.keys())[0].symbol
+                    if sym == el_only:
+                        count += 1
+                        if count == int(num_part):
+                            site_idx = i
+                            break
+                if site_idx is None:
+                    print(f"错误: 未找到第 {num_part} 个 {el_only}", file=sys.stderr)
+                    sys.exit(1)
+                args.site = [site_idx + 1]
+            else:
+                args.site = [int(num_part)]
+        else:
+            args.element = el_only
 
     # ── 确定替换位点 ──
     if args.site:
@@ -958,6 +1017,54 @@ def main():
                 f"氧化态: {ox_g:.2f}  配位数: {cn_g}"
             )
             print(table(hits_g, args.top, prefix))
+            print()
+            print()
+
+        # ── 加权综合排名（多环境加权平均） ──
+        if len(groups) > 1:
+            total_sites = sum(len(g.sites) for g in groups)
+            # 计算每个候选的综合加权分数
+            combined = {}
+            for g in groups:
+                hits_g = all_hits[g.label][0]
+                weight = len(g.sites) / total_sites
+                for h in hits_g:
+                    sym = h.symbol
+                    if sym not in combined:
+                        combined[sym] = {
+                            "total": 0.0, "electronic": 0.0, "radius": 0.0,
+                            "en": 0.0, "os": 0.0, "cand_group": h.cand_group,
+                            "cand_block": h.cand_block, "note": h.note
+                        }
+                    combined[sym]["total"] += h.total * weight
+                    combined[sym]["electronic"] += h.electronic * weight
+                    combined[sym]["radius"] += h.radius * weight
+                    combined[sym]["en"] += h.en * weight
+                    combined[sym]["os"] += h.os * weight
+
+            # 排序并输出
+            ranked = sorted(combined.items(), key=lambda x: x[1]["total"], reverse=True)
+            SEP = "-" * 95
+            print("  " + "=" * 50)
+            print("  加权综合排名 (按位点数量加权)")
+            print("  " + "=" * 50)
+            for g in groups:
+                print(f"    {g.label}: {len(g.sites)}/{total_sites} = "
+                      f"{len(g.sites)/total_sites:.2f}")
+            print()
+            lines = ["  加权综合:"]
+            fmt = "{rank:<4} {el:<7} {total:<7} {ec:<7} {r:<7} {en:<7} {os:<6}"
+            lines.append(fmt.format(
+                rank="Rank", el="元素", total="总分", ec="电子",
+                r="半径", en="电负", os="氧化"
+            ))
+            lines.append(SEP)
+            for i, (sym, d) in enumerate(ranked[:args.top], 1):
+                lines.append(
+                    f"{i:<4} {sym:<7} {d['total']:<7.3f} {d['electronic']:<7.3f} "
+                    f"{d['radius']:<7.3f} {d['en']:<7.3f} {d['os']:<6.2f}"
+                )
+            print("\n".join(lines))
             print()
             print()
 
