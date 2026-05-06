@@ -24,9 +24,43 @@ import numpy as np
 
 try:
     from pymatgen.core import Element
-except ImportError:
-    print("需要 pymatgen: pip install pymatgen", file=sys.stderr)
-    sys.exit(1)
+except Exception:
+    # Fallback: embedded element data for systems without working pymatgen
+    try:
+        from element_data import ELEMENT_DATA
+    except ImportError:
+        print("需要 pymatgen 或 element_data.py", file=sys.stderr)
+        sys.exit(1)
+
+    class Element:
+        """Minimal Element class backed by embedded data."""
+        __slots__ = ('_d',)
+        def __init__(self, symbol):
+            d = ELEMENT_DATA.get(symbol)
+            if d is None:
+                raise ValueError(f"Unknown element: {symbol}")
+            self._d = d
+        @property
+        def atomic_radius(self):
+            return self._d['atomic_radius']
+        @property
+        def X(self):
+            return self._d['X']
+        @property
+        def group(self):
+            return self._d['group']
+        @property
+        def block(self):
+            return self._d['block']
+        @property
+        def row(self):
+            return self._d['row']
+        @property
+        def common_oxidation_states(self):
+            return self._d['common_oxidation_states']
+        @property
+        def ionic_radii(self):
+            return self._d['ionic_radii']
 
 from phonon_data import ALL_STRUCTURES
 
