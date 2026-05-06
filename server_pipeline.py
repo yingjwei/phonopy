@@ -7,7 +7,7 @@ VASP + phonopy 自动化流水线（服务器端）
 用法:
 
   1. 生成候选 POSCAR:
-     python screen.py POSCAR --element V --candidates Nb,Ta --output-dir ./candidates
+     python replace.py POSCAR --element V --candidates Nb,Ta --output-dir ./candidates
 
   2. 为候选生成 VASP 作业:
      python server_pipeline.py setup ./candidates -r REF_DIR -o ./jobs

@@ -245,7 +245,7 @@ footer {
 <h2>工具文件</h2>
 <table class="file-table">
 <tr><th>文件</th><th>说明</th></tr>
-<tr><td>screen.py</td><td>启发式筛选器 — 基于离子半径、电负性、氧化态评分</td></tr>
+<tr><td>replace.py</td><td>启发式筛选器 — 基于离子半径、电负性、氧化态评分</td></tr>
 <tr><td>server_pipeline.py</td><td>VASP + phonopy 自动化流水线</td></tr>
 <tr><td>README.md</td><td>Markdown 文档</td></tr>
 <tr><td>docs/index.html</td><td>本页面</td></tr>
@@ -293,19 +293,19 @@ footer {
 
 <h3>快速使用</h3>
 <pre><span class="c"># 一键推荐 V 的替代元素（自动生成候选 + 评分）</span>
-python screen.py POSCAR --element V
+python replace.py POSCAR --element V
 
 <span class="c"># 一键推荐 Cl 的替代元素</span>
-python screen.py POSCAR --element Cl
+python replace.py POSCAR --element Cl
 
 <span class="c"># 指定候选列表</span>
-python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr
+python replace.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr
 
 <span class="c"># 指定氧化态（提高准确性）</span>
-python screen.py POSCAR --element V --ox-state 4
+python replace.py POSCAR --element V --ox-state 4
 
 <span class="c"># 输出候选 POSCAR + JSON</span>
-python screen.py POSCAR --element Cl --ox-state -1 \
+python replace.py POSCAR --element Cl --ox-state -1 \
     --output-dir ./candidates --json results.json</pre>
 
 <h3>输出示例</h3>
@@ -414,7 +414,7 @@ Rank  Element  Total    Radius   EN       OS       Struct   note
 
 <h3>命令速查</h3>
 <pre><span class="c"># 1. 生成候选 POSCAR</span>
-python screen.py POSCAR --element V --candidates Nb,Ta \
+python replace.py POSCAR --element V --candidates Nb,Ta \
     --ox-state 4 --output-dir ./candidates
 
 <span class="c"># 2. 生成 VASP 弛豫作业（-r 指向含 POTCAR 的参考目录）</span>
@@ -508,13 +508,13 @@ python server_pipeline.py bulk POSCAR \
 
 <h3>测试</h3>
 <pre><span class="c"># 试算 VSCl 中 V 位替换</span>
-python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr --ox-state 4
+python replace.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr --ox-state 4
 
 <span class="c"># 试算 VSCl 中 Cl 位替换</span>
-python screen.py POSCAR --element Cl --candidates F,Br,I --ox-state -1
+python replace.py POSCAR --element Cl --candidates F,Br,I --ox-state -1
 
 <span class="c"># 试算 S 位全部候选</span>
-python screen.py POSCAR --element S --candidates chalcogen --ox-state -2</pre>
+python replace.py POSCAR --element S --candidates chalcogen --ox-state -2</pre>
 </section>
 
 <!-- ============================================================ -->

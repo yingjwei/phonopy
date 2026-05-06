@@ -6,12 +6,12 @@
 
 ```
 element_screener/
-├── screen.py           # 启发式筛选器（本机运行，零计算成本）
+├── replace.py           # 启发式筛选器（本机运行，零计算成本）
 ├── server_pipeline.py  # 服务器流水线（VASP + phonopy 自动化）
 └── README.md           # 本文件
 ```
 
-## 方案 A: 启发式筛选 (screen.py)
+## 方案 A: 启发式筛选 (replace.py)
 
 基于离子半径、电负性、氧化态兼容性对候选替换元素评分排序。
 
@@ -19,23 +19,23 @@ element_screener/
 
 ```bash
 # 替换特定元素的所有位点
-python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr
+python replace.py POSCAR --element V --candidates Nb,Ta,Mo,W,Cr
 
 # 替换特定位点（1-indexed）
-python screen.py POSCAR --site 2 --candidates all
+python replace.py POSCAR --site 2 --candidates all
 
 # 使用内置分组
-python screen.py POSCAR --element S --candidates chalcogen
+python replace.py POSCAR --element S --candidates chalcogen
 
 # 指定氧化态（推荐，提高准确性）
-python screen.py POSCAR --element V --candidates all --ox-state 4
+python replace.py POSCAR --element V --candidates all --ox-state 4
 
 # 输出候选 POSCAR 文件 + JSON 结果
-python screen.py POSCAR --element Cl --candidates F,Br,I --ox-state -1 \
+python replace.py POSCAR --element Cl --candidates F,Br,I --ox-state -1 \
     --output-dir ./candidates --json results.json
 
 # 排除特定元素、只看 Top 10
-python screen.py POSCAR --element V --candidates all --exclude Tc,W \
+python replace.py POSCAR --element V --candidates all --exclude Tc,W \
     --ox-state 4 --top 10
 ```
 
@@ -101,7 +101,7 @@ python screen.py POSCAR --element V --candidates all --exclude Tc,W \
 
 ```bash
 # ===== 第一步：本机启发式筛选 =====
-python screen.py POSCAR --element V --candidates Nb,Ta,Mo,W \
+python replace.py POSCAR --element V --candidates Nb,Ta,Mo,W \
     --ox-state 4 --output-dir ./candidates
 
 # ===== 第二步：生成候选的 VASP 作业 =====
@@ -180,7 +180,7 @@ python server_pipeline.py bulk POSCAR \
                 └──────┬──────┘
                        ↓
                 ┌─────────────┐
-                │启发式筛选(screen.py)│
+                │启发式筛选(replace.py)│
                 │  筛掉明显不合适   │
                 └──────┬──────┘
                        ↓
