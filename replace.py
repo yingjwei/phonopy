@@ -301,8 +301,8 @@ def _get_ionic_radius(el, ox, cn):
             r_above = float(radii[str(above)] if isinstance(list(radii.keys())[0], str) else radii[above])
             t = (ox - below) / (above - below)
             return r_below + t * (r_above - r_below)
-        return float(next(iter(radii.values())))
-    return float(next(iter(radii.values())))
+        return None
+    return None
 
 
 def _fractional_charge_balance(composition, target_sym):
