@@ -314,6 +314,11 @@ def _fractional_charge_balance(composition, target_sym):
     Fixed: anions (O=-2, N=-3, halogens=-1), non-target cations use common_ox_states[0].
     Returns: float — the target's effective oxidation state (fractional if needed).
     """
+    # 目标元素如果是已知阴离子，直接取固定值
+    # （N、O、卤素等在固体中氧化态几乎不变）
+    if target_sym in ANION_FIXED:
+        return ANION_FIXED[target_sym]
+
     total_charge = 0.0
     for sym, count in composition.items():
         if sym == target_sym:

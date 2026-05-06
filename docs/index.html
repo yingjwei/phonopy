@@ -292,6 +292,14 @@ footer {
 </table>
 </div>
 
+<div class="note">
+<strong>氧化态自动检测规则：</strong>
+被替换元素若为 <strong>N、O、卤素 (F/Cl/Br/I)、氧族 (S/Se/Te)、Pn族 (P/As)</strong>，
+直接取固定值（N=-3, O=-2, 卤素=-1, 氧族=-2, P/As=-3），跳过电荷平衡求解，
+因为这些元素在固体中氧化态几乎不变。其他元素通过电荷平衡或
+pymatgen 的 oxidation state guesser 推断。可用 <code>--ox-state</code> 手动指定。
+</div>
+
 <h3>快速使用</h3>
 <pre><span class="c"># 交互模式：直接运行，选择要替换的原子</span>
 	python replace.py POSCAR
