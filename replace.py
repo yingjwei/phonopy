@@ -783,7 +783,7 @@ def table(hits, top_n, header_prefix=""):
         lines.append(header_prefix)
     fmt = (
         "{rank:<4} {el:<7} {total:<7} {ec:<7} {r:<7} {en:<7} {os:<6} "
-        "{cgroup:<6} {cblock:<6} note"
+        "{cgroup:<8} {cblock:<6} note"
     )
     lines.append(fmt.format(
         rank="Rank", el="元素", total="总分", ec="电子",
@@ -791,10 +791,11 @@ def table(hits, top_n, header_prefix=""):
     ))
     lines.append(SEP)
     for i, h in enumerate(hits[:top_n], 1):
+        gcn = GROUP_CN.get(h.cand_group, str(h.cand_group))
         lines.append(
             f"{i:<4} {h.symbol:<7} {h.total:<7.3f} {h.electronic:<7.3f} "
             f"{h.radius:<7.3f} {h.en:<7.3f} {h.os:<6.2f} "
-            f"{h.cand_group:<6} {h.cand_block:<6} {h.note[:45]}"
+            f"{gcn:<8} {h.cand_block:<6} {h.note[:45]}"
         )
     return "\n".join(lines)
 
