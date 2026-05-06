@@ -846,6 +846,13 @@ def main():
             s = el_sym if isinstance(el_sym, str) else str(el_sym)
             comp_dict[s] = int(cnt)
 
+        # Pre-compute environment map per element
+        env_map = {}
+        for el in all_eles:
+            groups = classify_sites(struct, el)
+            if groups:
+                env_map[el] = groups
+
         print()
         print("=" * 60)
         print(f"  文件: {args.poscar}")
@@ -855,31 +862,35 @@ def main():
         print("=" * 60)
         print()
 
-        # 显示原子坐标（带标签）
-        print("  原子坐标 (Cartesian):")
-        counts = {}
-        for i, site in enumerate(struct):
-            sym = list(site.species.keys())[0].symbol
-            counts[sym] = counts.get(sym, 0) + 1
-            label = f"{sym}{counts[sym]}"
-            x, y, z = site.coords
-            print(f"    {label:<5} {x:>10.6f} {y:>10.6f} {z:>10.6f}")
+        # 按配位环境分组显示原子坐标
+        print("  原子坐标 (按环境分组):")
+        for el in sorted(env_map.keys()):
+            for env_idx, g in enumerate(env_map[el], 1):
+                print(f"  [{el}{env_idx}] {g.label} ({len(g.sites)} 个位点):")
+                for site_idx in g.sites:
+                    site = struct[site_idx]
+                    sym = list(site.species.keys())[0].symbol
+                    x, y, z = site.coords
+                    print(f"      位点 {site_idx+1:<3} {sym:<3}"
+                          f" {x:>10.6f} {y:>10.6f} {z:>10.6f}")
         print()
 
-        print("  配位环境分组:")
-        for el in all_eles:
-            groups = classify_sites(struct, el)
-            if not groups:
-                continue
-            for g in groups:
+        print("  配位环境说明:")
+        for el in sorted(env_map.keys()):
+            for env_idx, g in enumerate(env_map[el], 1):
                 site_nums = [s + 1 for s in g.sites]
-                print(f"    {g.label}: 位点 {site_nums}, "
+                print(f"    {el}{env_idx}={g.label}: 位点 {site_nums}, "
                       f"近邻 {dict(g.neighbor_counts)}, "
                       f"氧化态 {g.avg_ox:.2f}, CN={g.avg_cn}")
         print()
-        inp = input("  输入要替换的原子 (如 N / N1 / 3): ").strip()
+
+        # 解析输入:
+        #   N  = 替换该元素全部位点（多环境加权）
+        #   N1 = 替换该元素的环境 1
+        #   3  = 替换位点 3
+        inp = input("  选择目标 (例: N=全部N, N1=环境1, 3=位点3): ").strip()
         if not inp:
-            print("未输入原子", file=sys.stderr)
+            print("未输入", file=sys.stderr)
             sys.exit(1)
 
         el_only = inp.rstrip("0123456789")
@@ -888,22 +899,27 @@ def main():
 
         if num_part:
             if el_only:
-                site_idx = None
-                count = 0
-                for i, site in enumerate(struct):
-                    sym = list(site.species.keys())[0].symbol
-                    if sym == el_only:
-                        count += 1
-                        if count == int(num_part):
-                            site_idx = i
-                            break
-                if site_idx is None:
-                    print(f"错误: 未找到第 {num_part} 个 {el_only}", file=sys.stderr)
+                # 元素 + 编号 → 环境模式 (如 N1 = N 的环境 1)
+                if el_only in env_map:
+                    env_num = int(num_part)
+                    if 1 <= env_num <= len(env_map[el_only]):
+                        g = env_map[el_only][env_num - 1]
+                        args.site = [s + 1 for s in g.sites]
+                    else:
+                        print(f"错误: {el_only} 只有 "
+                              f"{len(env_map[el_only])} 个环境 "
+                              f"(1-{len(env_map[el_only])})",
+                              file=sys.stderr)
+                        sys.exit(1)
+                else:
+                    print(f"错误: 未找到元素 {el_only}",
+                          file=sys.stderr)
                     sys.exit(1)
-                args.site = [site_idx + 1]
             else:
+                # 纯数字 → 位点模式
                 args.site = [int(num_part)]
         else:
+            # 纯元素 → 全部替换（加权综合）
             args.element = el_only
 
     # ── 确定替换位点 ──
@@ -987,8 +1003,8 @@ def main():
         print(f"  元素替换推荐 — {host_sym} in {fmt}")
         print("=" * 55)
         print(f"  检测到 {len(groups)} 种配位环境:")
-        for g in groups:
-            print(f"    {g.label}: {len(g.sites)} 个位点, "
+        for env_idx, g in enumerate(groups, 1):
+            print(f"    {host_sym}{env_idx}={g.label}: {len(g.sites)} 个位点, "
                   f"配位 {dict(g.neighbor_counts)}, "
                   f"有效氧化态 {g.avg_ox:.2f}, 平均配位数 {g.avg_cn}")
         print()
@@ -1014,11 +1030,11 @@ def main():
             all_hits[g.label] = (hits, ox, cn)
 
         # ── 输出：每个环境单独表格 ──
-        for g in groups:
+        for env_idx, g in enumerate(groups, 1):
             hits_g, ox_g, cn_g = all_hits[g.label]
             site_list = [s + 1 for s in g.sites]
             prefix = (
-                f"  ── 环境: {g.label}  (位点 {site_list}) ──\n"
+                f"  ── {host_sym}{env_idx}={g.label} (位点 {site_list}) ──\n"
                 f"  配位: {dict(g.neighbor_counts)}  "
                 f"氧化态: {ox_g:.2f}  配位数: {cn_g}"
             )
@@ -1054,8 +1070,8 @@ def main():
             print("  " + "=" * 50)
             print("  加权综合排名 (按位点数量加权)")
             print("  " + "=" * 50)
-            for g in groups:
-                print(f"    {g.label}: {len(g.sites)}/{total_sites} = "
+            for env_idx, g in enumerate(groups, 1):
+                print(f"    {host_sym}{env_idx}={g.label}: {len(g.sites)}/{total_sites} = "
                       f"{len(g.sites)/total_sites:.2f}")
             print()
             lines = ["  加权综合:"]
